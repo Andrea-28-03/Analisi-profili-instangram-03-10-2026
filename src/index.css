@@ -1,0 +1,157 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --font-hand: 'Patrick Hand', 'Gaegu', cursive, sans-serif;
+    --font-naive: 'Gaegu', 'Patrick Hand', cursive, sans-serif;
+    --font-typewriter: 'Courier Prime', monospace;
+    --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    --ink-black: #1C1A17;
+    --ink-fountain: #2A2521;
+    --ink-muted: #6B635B;
+    --paper-bg: #F7F4EB;
+    --paper-card: #FFFFFF;
+    --paper-note: #FFFDF7;
+    --crayon-red: #E63946;
+    --crayon-pink: #FF5E8E;
+    --crayon-yellow: #FFD13B;
+    --crayon-blue: #2B6CB0;
+    --crayon-green: #38B000;
+    --crayon-orange: #FF7844;
+    --crayon-purple: #8338EC;
+  }
+}
+
+.font-hand {
+  font-family: var(--font-hand);
+}
+
+.font-naive {
+  font-family: var(--font-naive);
+}
+
+.font-typewriter {
+  font-family: var(--font-typewriter);
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: #F7F4EB;
+  color: #1C1A17;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-image: 
+    radial-gradient(#e5dfd2 0.75px, transparent 0.75px),
+    radial-gradient(#e5dfd2 0.75px, #F7F4EB 0.75px);
+  background-size: 24px 24px;
+  background-position: 0 0, 12px 12px;
+}
+
+@layer utilities {
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  /* Fountain Pen Wobbly Borders */
+  .border-ink {
+    border: 2px solid #1C1A17;
+  }
+  .border-ink-thin {
+    border: 1.5px solid #2A2521;
+  }
+  .border-ink-dashed {
+    border: 2px dashed #4A443E;
+  }
+  .border-wobbly-1 {
+    border-radius: 255px 15px 225px 15px/15px 225px 15px 255px;
+  }
+  .border-wobbly-2 {
+    border-radius: 18px 255px 16px 25px/255px 18px 225px 16px;
+  }
+  .border-wobbly-sm {
+    border-radius: 12px 6px 14px 7px/7px 12px 6px 14px;
+  }
+
+  /* Tactile Hand-drawn Shadows */
+  .shadow-doodle {
+    box-shadow: 3px 3px 0px #1C1A17;
+  }
+  .shadow-doodle-sm {
+    box-shadow: 2px 2px 0px #1C1A17;
+  }
+  .shadow-doodle-lg {
+    box-shadow: 5px 5px 0px #1C1A17;
+  }
+  .shadow-doodle-red {
+    box-shadow: 3px 3px 0px #E63946;
+  }
+  .shadow-doodle-blue {
+    box-shadow: 3px 3px 0px #2B6CB0;
+  }
+  .shadow-doodle-yellow {
+    box-shadow: 3px 3px 0px #FFB703;
+  }
+
+  /* Interactive tactile press */
+  .btn-doodle {
+    transition: all 0.12s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .btn-doodle:hover {
+    transform: translate(-1px, -1px);
+    box-shadow: 4px 4px 0px #1C1A17;
+  }
+  .btn-doodle:active {
+    transform: translate(2px, 2px);
+    box-shadow: 1px 1px 0px #1C1A17;
+  }
+
+  /* Ruled Notebook Paper effect */
+  .ruled-paper {
+    background-color: #FFFDF9;
+    background-image: repeating-linear-gradient(
+      transparent,
+      transparent 23px,
+      #EBE5D8 23px,
+      #EBE5D8 24px
+    );
+    line-height: 24px;
+  }
+
+  /* Washi tape decor */
+  .washi-tape-yellow {
+    background: rgba(255, 225, 93, 0.85);
+    box-shadow: 0 1px 2px rgba(0,0,0,0.06);
+    border-left: 2px dashed rgba(200, 160, 0, 0.4);
+    border-right: 2px dashed rgba(200, 160, 0, 0.4);
+  }
+  .washi-tape-pink {
+    background: rgba(255, 175, 204, 0.85);
+    box-shadow: 0 1px 2px rgba(0,0,0,0.06);
+    border-left: 2px dashed rgba(200, 100, 140, 0.4);
+    border-right: 2px dashed rgba(200, 100, 140, 0.4);
+  }
+  .washi-tape-blue {
+    background: rgba(162, 210, 255, 0.85);
+    box-shadow: 0 1px 2px rgba(0,0,0,0.06);
+    border-left: 2px dashed rgba(80, 140, 200, 0.4);
+    border-right: 2px dashed rgba(80, 140, 200, 0.4);
+  }
+
+  /* Crayon Highlight Underlines */
+  .crayon-mark-yellow {
+    background: linear-gradient(100deg, rgba(255,209,59,0) 1%, rgba(255,209,59,0.7) 4%, rgba(255,225,93,0.85) 92%, rgba(255,209,59,0.1) 98%);
+    border-radius: 8px 12px 10px 14px;
+  }
+  .crayon-mark-pink {
+    background: linear-gradient(100deg, rgba(255,94,142,0) 1%, rgba(255,94,142,0.4) 4%, rgba(255,140,180,0.6) 92%, rgba(255,94,142,0.1) 98%);
+    border-radius: 8px 12px 10px 14px;
+  }
+  .crayon-mark-green {
+    background: linear-gradient(100deg, rgba(56,176,0,0) 1%, rgba(56,176,0,0.3) 4%, rgba(100,210,80,0.5) 92%, rgba(56,176,0,0.1) 98%);
+    border-radius: 8px 12px 10px 14px;
+  }
+}
