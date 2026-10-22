@@ -11,9 +11,12 @@ import {
   CheckCircle2,
   RotateCcw,
   UserX,
+  Building,
+  Compass,
 } from "lucide-react";
 import { InstagramProfile } from "../types";
 import { ProfilePreview } from "./ProfilePreview";
+import { classifyEntityKind, classifyEntitySubType } from "../utils/entityClassifier";
 
 interface StudioTableProps {
   profiles: InstagramProfile[];
@@ -25,7 +28,7 @@ interface StudioTableProps {
   theme?: 'light' | 'dark';
 }
 
-type SortField = "username" | "name" | "category" | "location" | "rating" | "status";
+type SortField = "username" | "name" | "kind" | "category" | "location" | "rating" | "status";
 
 const AVATAR_COLORS = [
   "bg-[#FF5E8E]",
@@ -71,6 +74,10 @@ export const StudioTable: React.FC<StudioTableProps> = ({
         valA = a.aiAnalysis?.displayName || a.displayName || a.username;
         valB = b.aiAnalysis?.displayName || b.displayName || b.username;
         break;
+      case "kind":
+        valA = `${classifyEntityKind(a)} ${classifyEntitySubType(a)}`;
+        valB = `${classifyEntityKind(b)} ${classifyEntitySubType(b)}`;
+        break;
       case "category":
         valA = a.aiAnalysis?.category || "ZZZ";
         valB = b.aiAnalysis?.category || "ZZZ";
@@ -91,16 +98,16 @@ export const StudioTable: React.FC<StudioTableProps> = ({
     return sortAsc ? cmp : -cmp;
   });
 
-  const tableBg = theme === 'dark' ? 'bg-[#22201D] text-[#F7F4EB] border-[#38332E]' : 'bg-[#FFFDF7] text-[#1C1A17] border-[#1C1A17]';
-  const headerBg = theme === 'dark' ? 'bg-[#2C2A26] text-[#F7F4EB] border-[#38332E]' : 'bg-[#F3EFE6] text-[#1C1A17] border-[#1C1A17]';
-  const rowHover = theme === 'dark' ? 'hover:bg-[#2C2A26]' : 'hover:bg-[#FFF9E6]';
-  const divider = theme === 'dark' ? 'divide-[#38332E]' : 'divide-[#EBE5D8]';
+  const tableBg = theme === 'dark' ? 'bg-[#1E1C19] text-[#F7F4EB] border-[#44403C]' : 'bg-[#FFFDF7] text-[#1C1A17] border-[#1C1A17]';
+  const headerBg = theme === 'dark' ? 'bg-[#282622] text-[#F7F4EB] border-[#44403C]' : 'bg-[#F3EFE6] text-[#1C1A17] border-[#1C1A17]';
+  const rowHover = theme === 'dark' ? 'hover:bg-[#2A2724]' : 'hover:bg-[#FFF9E6]';
+  const divider = theme === 'dark' ? 'divide-[#3E3A35]' : 'divide-[#EBE5D8]';
 
   if (profiles.length === 0) {
     return (
       <div className={`${tableBg} rounded-2xl border-2 border-dashed p-12 text-center shadow-doodle-sm`}>
         <p className="font-hand font-bold text-lg">Nessun profilo trovato nel taccuino con questi filtri.</p>
-        <p className="font-sans text-xs opacity-75 mt-1">Prova a cambiare la ricerca o la disciplina.</p>
+        <p className="font-sans text-xs opacity-75 mt-1">Prova a cambiare la ricerca, la divisione Studi/Aziende o la disciplina.</p>
       </div>
     );
   }
@@ -117,7 +124,16 @@ export const StudioTable: React.FC<StudioTableProps> = ({
                 className="py-3 px-4 cursor-pointer opacity-85 hover:opacity-100 transition"
               >
                 <div className="flex items-center gap-1.5">
-                  <span>Profilo Studio</span>
+                  <span>Profilo Studio / Brand</span>
+                  <ArrowUpDown className="w-3.5 h-3.5 opacity-60" />
+                </div>
+              </th>
+              <th
+                onClick={() => handleSort("kind")}
+                className="py-3 px-4 cursor-pointer opacity-85 hover:opacity-100 transition"
+              >
+                <div className="flex items-center gap-1.5">
+                  <span>Natura & Tipo</span>
                   <ArrowUpDown className="w-3.5 h-3.5 opacity-60" />
                 </div>
               </th>
@@ -135,7 +151,7 @@ export const StudioTable: React.FC<StudioTableProps> = ({
                 className="py-3 px-4 cursor-pointer opacity-85 hover:opacity-100 transition"
               >
                 <div className="flex items-center gap-1.5">
-                  <span>Disciplina</span>
+                  <span>Ambito Disciplinare</span>
                   <ArrowUpDown className="w-3.5 h-3.5 opacity-60" />
                 </div>
               </th>
@@ -167,6 +183,8 @@ export const StudioTable: React.FC<StudioTableProps> = ({
               const ai = profile.aiAnalysis;
               const studioName = ai?.displayName || profile.displayName || profile.username;
               const avatarColor = AVATAR_COLORS[i % AVATAR_COLORS.length];
+              const entityKind = classifyEntityKind(profile);
+              const subType = classifyEntitySubType(profile);
 
               return (
                 <tr
@@ -226,6 +244,28 @@ export const StudioTable: React.FC<StudioTableProps> = ({
                           @{profile.username}
                         </span>
                       </div>
+                    </div>
+                  </td>
+
+                  {/* Natura & Tipo (Studi vs Aziende) */}
+                  <td className="py-3 px-4">
+                    <div className="flex flex-col gap-0.5">
+                      <div className="flex items-center gap-1 font-hand font-bold text-xs">
+                        {entityKind === "azienda" ? (
+                          <span className="text-[#FB8500] inline-flex items-center gap-1">
+                            🏢 Azienda
+                          </span>
+                        ) : entityKind === "studio" ? (
+                          <span className="text-[#3A86FF] inline-flex items-center gap-1">
+                            📐 Studio
+                          </span>
+                        ) : (
+                          <span className="opacity-60">Altro</span>
+                        )}
+                      </div>
+                      <span className="text-[11px] font-sans opacity-75 truncate max-w-[140px]" title={subType}>
+                        {subType}
+                      </span>
                     </div>
                   </td>
 
@@ -321,21 +361,37 @@ export const StudioTable: React.FC<StudioTableProps> = ({
                   {/* AI Status */}
                   <td className="py-3 px-4 text-center">
                     {profile.isAnalyzing ? (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-hand font-bold bg-[#FFBE0B]/20 text-[#D97706] border border-[#D97706]">
+                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-hand font-bold border ${
+                        theme === 'dark'
+                          ? 'bg-[#78350F]/40 text-[#FDE047] border-[#CA8A04]'
+                          : 'bg-[#FFBE0B]/20 text-[#D97706] border-[#D97706]'
+                      }`}>
                         <Loader2 className="w-3 h-3 animate-spin" />
                         <span>In corso...</span>
                       </span>
                     ) : profile.error ? (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-hand font-bold bg-[#FEE2E2] text-[#E63946] border border-[#E63946]">
+                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-hand font-bold border ${
+                        theme === 'dark'
+                          ? 'bg-[#7F1D1D]/40 text-[#FCA5A5] border-[#EF4444]'
+                          : 'bg-[#FEE2E2] text-[#E63946] border-[#E63946]'
+                      }`}>
                         <span>Errore</span>
                       </span>
                     ) : profile.isAnalyzed ? (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-hand font-bold bg-[#DCFCE7] text-[#166534] border border-[#166534]">
-                        <CheckCircle2 className="w-3 h-3 text-[#166534]" />
+                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-hand font-bold border ${
+                        theme === 'dark'
+                          ? 'bg-[#14532D]/40 text-[#86EFAC] border-[#22C55E]'
+                          : 'bg-[#DCFCE7] text-[#166534] border-[#166534]'
+                      }`}>
+                        <CheckCircle2 className="w-3 h-3" />
                         <span>Gemini ✓</span>
                       </span>
                     ) : (
-                      <span className={`inline-flex items-center px-2 py-0.5 rounded-lg text-xs font-hand opacity-75 border ${theme === 'dark' ? 'bg-[#181716] border-[#38332E]' : 'bg-[#F7F4EB] border-[#D6CEBF]'}`}>
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded-lg text-xs font-hand border ${
+                        theme === 'dark'
+                          ? 'bg-[#2A2724] text-[#D6D3D1] border-[#44403C]'
+                          : 'bg-[#F7F4EB] text-[#6B635B] border-[#D6CEBF]'
+                      }`}>
                         Da fare ✎
                       </span>
                     )}

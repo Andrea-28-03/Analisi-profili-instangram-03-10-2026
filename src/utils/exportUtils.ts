@@ -127,3 +127,33 @@ export function downloadJSONData(data: any, filename: string) {
   document.body.removeChild(link);
   URL.revokeObjectURL(url);
 }
+
+export function downloadTextData(text: string, filename: string) {
+  const blob = new Blob([text], { type: "text/plain;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+export async function downloadMultipleFilesSequentially(
+  files: Array<{ data: any; filename: string; isText?: boolean }>,
+  delayMs = 200
+) {
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i];
+    if (file.isText && typeof file.data === "string") {
+      downloadTextData(file.data, file.filename);
+    } else {
+      downloadJSONData(file.data, file.filename);
+    }
+    if (i < files.length - 1) {
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+}
+

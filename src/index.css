@@ -47,6 +47,16 @@ body {
   background-position: 0 0, 12px 12px;
 }
 
+html.dark body, body.dark, .dark body {
+  background-color: #181716 !important;
+  color: #F7F4EB !important;
+  background-image: 
+    radial-gradient(#38332E 0.75px, transparent 0.75px),
+    radial-gradient(#38332E 0.75px, #181716 0.75px) !important;
+  background-size: 24px 24px;
+  background-position: 0 0, 12px 12px;
+}
+
 @layer utilities {
   .no-scrollbar::-webkit-scrollbar {
     display: none;

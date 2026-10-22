@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { InstagramProfile } from "../types";
 import { ProfilePreview } from "./ProfilePreview";
+import { classifyEntityKind, classifyEntitySubType } from "../utils/entityClassifier";
 
 interface StudioCardProps {
   profile: InstagramProfile;
@@ -28,17 +29,6 @@ const TAPE_COLORS = [
   "washi-tape-blue",
 ];
 
-const CATEGORY_STYLES: Record<string, { bg: string; text: string; border: string }> = {
-  "Branding & Identity": { bg: "bg-[#FF5E8E]/15", text: "text-[#FF6B8B]", border: "border-[#FF5E8E]" },
-  "Design Grafico & Editoriale": { bg: "bg-[#FB8500]/15", text: "text-[#FB8500]", border: "border-[#FB8500]" },
-  "Architettura": { bg: "bg-[#38B000]/15", text: "text-[#4ADE80]", border: "border-[#38B000]" },
-  "Design del Prodotto & Industriale": { bg: "bg-[#FFBE0B]/25", text: "text-[#FFBE0B]", border: "border-[#FB8500]" },
-  "Type Design & Caratteri": { bg: "bg-[#3A86FF]/15", text: "text-[#60A5FA]", border: "border-[#3A86FF]" },
-  "Motion & 3D Design": { bg: "bg-[#8338EC]/15", text: "text-[#C084FC]", border: "border-[#8338EC]" },
-  "Interior Design": { bg: "bg-[#06D6A0]/20", text: "text-[#2DD4BF]", border: "border-[#06D6A0]" },
-  "Persona Privata / Amico": { bg: "bg-[#94A3B8]/20", text: "text-[#94A3B8]", border: "border-[#64748B]" },
-};
-
 export const StudioCard: React.FC<StudioCardProps> = ({
   profile,
   onSelect,
@@ -49,12 +39,14 @@ export const StudioCard: React.FC<StudioCardProps> = ({
 }) => {
   const ai = profile.aiAnalysis;
   const studioName = ai?.displayName || profile.displayName || profile.username;
+  const entityKind = classifyEntityKind(profile);
+  const subType = classifyEntitySubType(profile);
 
   const tapeIndex = Math.abs(profile.id.split('').reduce((acc, c) => acc + c.charCodeAt(0), 0)) % TAPE_COLORS.length;
   const tapeClass = TAPE_COLORS[tapeIndex];
 
-  const cardBg = theme === 'dark' ? 'bg-[#22201D] text-[#F7F4EB] border-[#38332E]' : 'bg-[#FFFDF9] text-[#1C1A17] border-[#1C1A17]';
-  const subBoxBg = theme === 'dark' ? 'bg-[#2C2A26] border-[#38332E]' : 'bg-[#FFF9E6] border-[#E5DFD2]';
+  const cardBg = theme === 'dark' ? 'bg-[#201E1B] text-[#F7F4EB] border-[#44403C]' : 'bg-[#FFFDF9] text-[#1C1A17] border-[#1C1A17]';
+  const subBoxBg = theme === 'dark' ? 'bg-[#282622] border-[#44403C]' : 'bg-[#FFF9E6] border-[#E5DFD2]';
 
   return (
     <div
@@ -69,7 +61,7 @@ export const StudioCard: React.FC<StudioCardProps> = ({
 
       {/* Top row: Category, Location & Favorite */}
       <div>
-        <div className="flex items-start justify-between gap-2 mb-3">
+        <div className="flex items-start justify-between gap-2 mb-2">
           <div className="flex flex-wrap items-center gap-1.5">
             {ai?.category ? (
               <span className={`inline-flex items-center px-2.5 py-0.5 rounded-lg text-xs font-hand font-bold border ${theme === 'dark' ? 'bg-[#181716] border-[#38332E]' : 'bg-[#FFF] border-[#1C1A17]'}`}>
@@ -118,7 +110,18 @@ export const StudioCard: React.FC<StudioCardProps> = ({
           </button>
         </div>
 
-        {/* Studio Name & Handle */}
+        {/* Entity Kind & Sub-Type Indicator */}
+        <div className="flex items-center gap-1.5 text-xs font-hand font-bold mb-2">
+          {entityKind === "azienda" ? (
+            <span className="text-[#FB8500] inline-flex items-center gap-1">🏢 Azienda</span>
+          ) : entityKind === "studio" ? (
+            <span className="text-[#3A86FF] inline-flex items-center gap-1">📐 Studio</span>
+          ) : null}
+          <span className="opacity-40 font-normal">·</span>
+          <span className="font-sans font-medium text-[11px] opacity-80 truncate">{subType}</span>
+        </div>
+
+        {/* Studio / Brand Name & Handle */}
         <div className="mb-3">
           <ProfilePreview profile={profile}>
             <h3 className="font-bold text-lg leading-snug group-hover:text-[#FF5E8E] transition-colors inline-block cursor-help font-sans">
@@ -193,7 +196,7 @@ export const StudioCard: React.FC<StudioCardProps> = ({
           <div className={`p-4 rounded-xl border-2 border-dashed text-center text-xs my-3 ${theme === 'dark' ? 'bg-[#181716] border-[#38332E]' : 'bg-[#F7F4EB] border-[#D6CEBF]'}`}>
             <p className="font-hand font-bold text-sm">Profilo non ancora analizzato</p>
             <p className="text-[11px] mt-0.5 opacity-75">
-              In attesa di categorizzazione AI per stile, città e tag.
+              In attesa di classificazione (Studio/Azienda, stile, città e tag).
             </p>
           </div>
         )}

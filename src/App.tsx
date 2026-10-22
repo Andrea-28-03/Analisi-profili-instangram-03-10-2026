@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { Header } from "./components/Header";
 import { CategoryFilter } from "./components/CategoryFilter";
+import { TaxonomyFilterBar } from "./components/TaxonomyFilterBar";
 import { StudioTable } from "./components/StudioTable";
 import { StudioCard } from "./components/StudioCard";
 import { StudioMap } from "./components/StudioMap";
@@ -9,7 +10,24 @@ import { StudioInsights } from "./components/StudioInsights";
 import { ImportModal } from "./components/ImportModal";
 import { StudioDetailModal } from "./components/StudioDetailModal";
 import { ExportGeminiModal } from "./components/ExportGeminiModal";
-import { InstagramProfile, ViewMode, FilterStatus } from "./types";
+import { ConfirmModal, ConfirmActionType } from "./components/ConfirmModal";
+import {
+  InstagramProfile,
+  ViewMode,
+  FilterStatus,
+  FilterMacroEntity,
+  MacroEntity,
+  GeoFilterType,
+  FilterWorkSpaceMode,
+  WorkSpaceMode,
+  EntityKind,
+} from "./types";
+import {
+  classifyMacroEntity,
+  classifyEntityKind,
+  classifyEntitySubType,
+  WORK_MODE_CONFIG,
+} from "./utils/entityClassifier";
 import { INITIAL_STUDIOS } from "./data/initialStudios";
 import {
   Sparkles,
@@ -17,9 +35,11 @@ import {
   AlertTriangle,
   Layers,
   CheckCircle2,
+  Check,
 } from "lucide-react";
 
 const STORAGE_KEY = "instadesign_profiles_v1";
+const CUSTOM_CAT_KEY = "curator_custom_categories_v1";
 
 export default function App() {
   const [profiles, setProfiles] = useState<InstagramProfile[]>(() => {
@@ -37,12 +57,29 @@ export default function App() {
     return INITIAL_STUDIOS;
   });
 
+  // Filter States
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedCategory, setSelectedCategory] = useState("all");
-  const [selectedCountry, setSelectedCountry] = useState("all");
+  const [selectedMacroEntity, setSelectedMacroEntity] = useState<FilterMacroEntity>("all");
+  const [noPrivate, setNoPrivate] = useState(false);
   const [statusFilter, setStatusFilter] = useState<FilterStatus>("all");
+  const [geoMode, setGeoMode] = useState<GeoFilterType>("city");
+  const [selectedGeo, setSelectedGeo] = useState<string>("all");
+  const [selectedWorkMode, setSelectedWorkMode] = useState<FilterWorkSpaceMode>("all");
+  
+  // Bottom Cascading Taxonomy Multi-Select (Additive)
+  const [selectedTaxonomyTags, setSelectedTaxonomyTags] = useState<string[]>([]);
+  const [taxonomyMatchMode, setTaxonomyMatchMode] = useState<'or' | 'and'>('or');
+  const [isTaxonomyOpen, setIsTaxonomyOpen] = useState(true);
+  const [customCategories, setCustomCategories] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem(CUSTOM_CAT_KEY);
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
   const [viewMode, setViewMode] = useState<ViewMode>("table");
-  const [hidePrivateProfiles, setHidePrivateProfiles] = useState(false);
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
     try {
       return (localStorage.getItem('curator_theme_v1') as 'light' | 'dark') || 'light';
@@ -56,7 +93,24 @@ export default function App() {
   const [selectedProfileForDetail, setSelectedProfileForDetail] =
     useState<InstagramProfile | null>(null);
 
-  // Sync to localStorage
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [confirmModalConfig, setConfirmModalConfig] = useState<{
+    isOpen: boolean;
+    actionType: ConfirmActionType | null;
+    targetName?: string;
+    onConfirm: () => void;
+  }>({
+    isOpen: false,
+    actionType: null,
+    onConfirm: () => {},
+  });
+
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(null), 3500);
+  };
+
+  // Sync profiles to localStorage
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(profiles));
@@ -65,20 +119,60 @@ export default function App() {
     }
   }, [profiles]);
 
+  // Sync custom categories to localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem(CUSTOM_CAT_KEY, JSON.stringify(customCategories));
+    } catch (e) {
+      console.error("Failed to save custom categories:", e);
+    }
+  }, [customCategories]);
+
+  // Theme Sync
   useEffect(() => {
     try {
       localStorage.setItem('curator_theme_v1', theme);
+      document.documentElement.classList.toggle('dark', theme === 'dark');
     } catch (e) {
       console.error("Failed to save theme:", e);
     }
   }, [theme]);
 
-  // Derived categories with counts
-  const categories = useMemo(() => {
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', theme === 'dark');
+  }, []);
+
+  // Compute Macro Entity Counts
+  const macroCounts = useMemo(() => {
+    const counts: Record<FilterMacroEntity, number> = {
+      all: profiles.length,
+      studio: 0,
+      azienda: 0,
+      universita: 0,
+      fotografia: 0,
+      illustrazione: 0,
+      artisti: 0,
+      creator: 0,
+      amici: 0,
+    };
+
+    profiles.forEach((p) => {
+      const macro = classifyMacroEntity(p);
+      if (macro in counts) {
+        counts[macro as FilterMacroEntity] = (counts[macro as FilterMacroEntity] || 0) + 1;
+      }
+    });
+
+    return counts;
+  }, [profiles]);
+
+  // Available Cities
+  const availableCities = useMemo(() => {
     const map: Record<string, number> = {};
     profiles.forEach((p) => {
-      if (p.aiAnalysis?.category) {
-        map[p.aiAnalysis.category] = (map[p.aiAnalysis.category] || 0) + 1;
+      const city = p.aiAnalysis?.locationCity;
+      if (city && city.trim()) {
+        map[city.trim()] = (map[city.trim()] || 0) + 1;
       }
     });
     return Object.entries(map)
@@ -86,13 +180,13 @@ export default function App() {
       .sort((a, b) => b.count - a.count);
   }, [profiles]);
 
-  // Derived countries with counts
-  const countries = useMemo(() => {
+  // Available Regions
+  const availableRegions = useMemo(() => {
     const map: Record<string, number> = {};
     profiles.forEach((p) => {
-      if (p.aiAnalysis?.locationCountry) {
-        map[p.aiAnalysis.locationCountry] =
-          (map[p.aiAnalysis.locationCountry] || 0) + 1;
+      const reg = p.aiAnalysis?.locationRegion || p.aiAnalysis?.locationState;
+      if (reg && reg.trim()) {
+        map[reg.trim()] = (map[reg.trim()] || 0) + 1;
       }
     });
     return Object.entries(map)
@@ -100,65 +194,201 @@ export default function App() {
       .sort((a, b) => b.count - a.count);
   }, [profiles]);
 
-  // Filtered profiles
+  // Work Mode Counts
+  const workModeCounts = useMemo(() => {
+    const map: Record<WorkSpaceMode, number> = {
+      in_sede: 0,
+      ibrido: 0,
+      remoto: 0,
+      showroom: 0,
+      atelier: 0,
+    };
+    profiles.forEach((p) => {
+      const wm = p.aiAnalysis?.workMode;
+      if (wm && wm in map) {
+        map[wm] = (map[wm] || 0) + 1;
+      }
+    });
+    return map;
+  }, [profiles]);
+
+  // All tags across entire notebook for smart autocomplete in StudioDetailModal
+  const allNotebookTags = useMemo(() => {
+    const set = new Set<string>();
+    profiles.forEach((p) => {
+      const ai = p.aiAnalysis;
+      if (!ai) return;
+      ai.subCategories?.forEach((t) => t && set.add(t));
+      ai.designTags?.forEach((t) => t && set.add(t));
+      ai.keySpecialties?.forEach((t) => t && set.add(t));
+      if (ai.subType) set.add(ai.subType);
+    });
+    customCategories.forEach((t) => t && set.add(t));
+    return Array.from(set);
+  }, [profiles, customCategories]);
+
+  // Filtered Profiles
   const filteredProfiles = useMemo(() => {
     return profiles.filter((p) => {
       const ai = p.aiAnalysis;
       const studioName = ai?.displayName || p.displayName || p.username;
 
-      // Search query
+      // 1. Search Query
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase().trim();
         const matchesUsername = p.username.toLowerCase().includes(q);
         const matchesName = studioName.toLowerCase().includes(q);
         const matchesCity = ai?.locationCity?.toLowerCase().includes(q) || false;
+        const matchesRegion = (ai?.locationRegion || ai?.locationState)?.toLowerCase().includes(q) || false;
         const matchesCountry = ai?.locationCountry?.toLowerCase().includes(q) || false;
         const matchesStyle = ai?.visualStyle?.toLowerCase().includes(q) || false;
-        const matchesSpecialties =
-          ai?.keySpecialties?.some((s) => s.toLowerCase().includes(q)) || false;
-        const matchesDesignTags = 
-          ai?.designTags?.some((s) => s.toLowerCase().includes(q)) || false;
+        const matchesSpecialties = ai?.keySpecialties?.some((s) => s.toLowerCase().includes(q)) || false;
+        const matchesDesignTags = ai?.designTags?.some((s) => s.toLowerCase().includes(q)) || false;
+        const matchesSubCategories = ai?.subCategories?.some((s) => s.toLowerCase().includes(q)) || false;
         const matchesNotes = p.notes?.toLowerCase().includes(q) || false;
 
         if (
           !matchesUsername &&
           !matchesName &&
           !matchesCity &&
+          !matchesRegion &&
           !matchesCountry &&
           !matchesStyle &&
           !matchesSpecialties &&
           !matchesDesignTags &&
+          !matchesSubCategories &&
           !matchesNotes
         ) {
           return false;
         }
       }
 
-      // Category filter
-      if (selectedCategory !== "all") {
-        if (ai?.category !== selectedCategory) {
+      // 2. Macro Entity Filter
+      if (selectedMacroEntity !== "all") {
+        const macro = classifyMacroEntity(p);
+        if (macro !== selectedMacroEntity) {
           return false;
         }
       }
 
-      // Country filter
-      if (selectedCountry !== "all") {
-        if (ai?.locationCountry !== selectedCountry) {
-          return false;
-        }
+      // 3. Dedicated "No privati" filter
+      if (noPrivate) {
+        const isPriv =
+          p.isPrivatePerson === true ||
+          ai?.isPrivatePerson === true ||
+          classifyMacroEntity(p) === "privato" ||
+          classifyMacroEntity(p) === "amici" ||
+          ai?.category === "Persona Privata / Amico";
+
+        if (isPriv) return false;
       }
 
-      // Status filter
+      // 4. Status Filter
       if (statusFilter === "analyzed" && !p.isAnalyzed) return false;
       if (statusFilter === "pending" && p.isAnalyzed) return false;
       if (statusFilter === "favorites" && !p.isFavorite) return false;
 
-      // Hide private profiles
-      if (hidePrivateProfiles && ai?.category === "Persona Privata / Amico") return false;
+      // 5. Geo Filter (City vs Region)
+      if (selectedGeo !== "all") {
+        if (geoMode === "city") {
+          if (ai?.locationCity !== selectedGeo) return false;
+        } else {
+          const region = ai?.locationRegion || ai?.locationState;
+          if (region !== selectedGeo) return false;
+        }
+      }
+
+      // 6. Work Space Mode Filter
+      if (selectedWorkMode !== "all") {
+        if (ai?.workMode !== selectedWorkMode) return false;
+      }
+
+      // 7. Additive Cascading Taxonomy Tags Filter
+      if (selectedTaxonomyTags.length > 0) {
+        const profileTags = [
+          ...(ai?.subCategories || []),
+          ...(ai?.designTags || []),
+          ...(ai?.keySpecialties || []),
+          ai?.subType,
+          ai?.studioType,
+          ai?.category,
+        ]
+          .filter(Boolean)
+          .map((t) => (t as string).toLowerCase().trim());
+
+        if (taxonomyMatchMode === "or") {
+          // Profile must match AT LEAST ONE of selected tags
+          const hasAny = selectedTaxonomyTags.some((selected) => {
+            const lowerSel = selected.toLowerCase().trim();
+            return profileTags.some(
+              (pt) => pt === lowerSel || pt.includes(lowerSel) || lowerSel.includes(pt)
+            );
+          });
+          if (!hasAny) return false;
+        } else {
+          // Profile must match ALL selected tags
+          const hasAll = selectedTaxonomyTags.every((selected) => {
+            const lowerSel = selected.toLowerCase().trim();
+            return profileTags.some(
+              (pt) => pt === lowerSel || pt.includes(lowerSel) || lowerSel.includes(pt)
+            );
+          });
+          if (!hasAll) return false;
+        }
+      }
 
       return true;
     });
-  }, [profiles, searchQuery, selectedCategory, selectedCountry, statusFilter, hidePrivateProfiles]);
+  }, [
+    profiles,
+    searchQuery,
+    selectedMacroEntity,
+    noPrivate,
+    statusFilter,
+    geoMode,
+    selectedGeo,
+    selectedWorkMode,
+    selectedTaxonomyTags,
+    taxonomyMatchMode,
+  ]);
+
+  // Taxonomy Tag Handlers (Additive)
+  const handleToggleTaxonomyTag = (tag: string) => {
+    setSelectedTaxonomyTags((prev) =>
+      prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]
+    );
+  };
+
+  const handleClearTaxonomyTags = () => {
+    setSelectedTaxonomyTags([]);
+  };
+
+  const handleAddCustomCategory = (categoryName: string) => {
+    if (!customCategories.includes(categoryName)) {
+      setCustomCategories((prev) => [...prev, categoryName]);
+      showToast(`Nuova categoria aggiunta: "${categoryName}"`);
+    }
+  };
+
+  // Reset all filters
+  const handleResetAllFilters = () => {
+    setSearchQuery("");
+    setSelectedMacroEntity("all");
+    setNoPrivate(false);
+    setStatusFilter("all");
+    setSelectedGeo("all");
+    setSelectedWorkMode("all");
+    setSelectedTaxonomyTags([]);
+  };
+
+  const isAnyFilterActive =
+    searchQuery.trim().length > 0 ||
+    selectedMacroEntity !== "all" ||
+    noPrivate ||
+    statusFilter !== "all" ||
+    selectedGeo !== "all" ||
+    selectedWorkMode !== "all" ||
+    selectedTaxonomyTags.length > 0;
 
   // Toggle favorite status
   const handleToggleFavorite = (id: string) => {
@@ -172,19 +402,30 @@ export default function App() {
     }
   };
 
-  // Update personal notes and rating
-  const handleUpdateNotes = (id: string, notes: string, rating: number) => {
+  // Full manual update of profile from StudioDetailModal
+  const handleUpdateProfile = (updatedProfile: InstagramProfile) => {
     setProfiles((prev) =>
-      prev.map((p) => (p.id === id ? { ...p, notes, rating } : p))
+      prev.map((p) => (p.id === updatedProfile.id ? updatedProfile : p))
     );
-    if (selectedProfileForDetail?.id === id) {
-      setSelectedProfileForDetail((prev) => (prev ? { ...prev, notes, rating } : null));
+    if (selectedProfileForDetail?.id === updatedProfile.id) {
+      setSelectedProfileForDetail(updatedProfile);
     }
+    showToast(`Scheda aggiornata: "${updatedProfile.aiAnalysis?.displayName || updatedProfile.username}"`);
   };
 
   // Delete profile
   const handleDeleteProfile = (id: string) => {
-    setProfiles((prev) => prev.filter((p) => p.id !== id));
+    const profile = profiles.find((p) => p.id === id);
+    const targetName = profile?.aiAnalysis?.displayName || profile?.displayName || profile?.username;
+    setConfirmModalConfig({
+      isOpen: true,
+      actionType: "delete_profile",
+      targetName: targetName ? `@${targetName}` : undefined,
+      onConfirm: () => {
+        setProfiles((prev) => prev.filter((p) => p.id !== id));
+        showToast("Profilo rimosso dal taccuino.");
+      },
+    });
   };
 
   // Mark profile as Private/Friend
@@ -194,10 +435,22 @@ export default function App() {
         p.id === id
           ? {
               ...p,
+              isPrivatePerson: true,
               isAnalyzed: true,
               aiAnalysis: {
                 ...p.aiAnalysis,
+                displayName: p.displayName || p.username,
                 category: "Persona Privata / Amico",
+                macroEntity: "privato",
+                studioType: "Persona Privata",
+                isPrivatePerson: true,
+                locationCity: p.aiAnalysis?.locationCity || "",
+                locationCountry: p.aiAnalysis?.locationCountry || "",
+                countryCode: p.aiAnalysis?.countryCode || "",
+                visualStyle: "",
+                keySpecialties: [],
+                description: "Profilo personale o privato.",
+                analyzedAt: p.aiAnalysis?.analyzedAt || new Date().toISOString(),
               },
             }
           : p
@@ -208,15 +461,28 @@ export default function App() {
         prev
           ? {
               ...prev,
+              isPrivatePerson: true,
               isAnalyzed: true,
               aiAnalysis: {
                 ...prev.aiAnalysis,
+                displayName: prev.displayName || prev.username,
                 category: "Persona Privata / Amico",
+                macroEntity: "privato",
+                studioType: "Persona Privata",
+                isPrivatePerson: true,
+                locationCity: prev.aiAnalysis?.locationCity || "",
+                locationCountry: prev.aiAnalysis?.locationCountry || "",
+                countryCode: prev.aiAnalysis?.countryCode || "",
+                visualStyle: "",
+                keySpecialties: [],
+                description: "Profilo personale o privato.",
+                analyzedAt: prev.aiAnalysis?.analyzedAt || new Date().toISOString(),
               },
             }
           : null
       );
     }
+    showToast("Profilo contrassegnato come Privato/Amico");
   };
 
   // Reset analysis for a single profile
@@ -247,19 +513,21 @@ export default function App() {
           : null
       );
     }
+    showToast("Analisi resettata. Il profilo è pronto per essere rianalizzato.");
   };
 
   // Import profiles handler
   const handleImport = (newProfiles: InstagramProfile[], replace: boolean) => {
     if (replace) {
       setProfiles(newProfiles);
+      showToast(`Importazione completata: ${newProfiles.length} profili caricati.`);
     } else {
-      // Merge and deduplicate by username
       const existingUsernames = new Set(profiles.map((p) => p.username.toLowerCase()));
       const filtered = newProfiles.filter(
         (p) => !existingUsernames.has(p.username.toLowerCase())
       );
       setProfiles((prev) => [...prev, ...filtered]);
+      showToast(`Aggiunti ${filtered.length} nuovi profili al taccuino.`);
     }
   };
 
@@ -274,88 +542,132 @@ export default function App() {
         const text = event.target?.result as string;
         const parsed = JSON.parse(text);
 
-        if (!Array.isArray(parsed)) {
-          alert("Errore: il file deve contenere un array JSON.");
+        // Extract list of profiles from various supported JSON formats:
+        // 1. Direct array: [ { username, aiAnalysis } ]
+        // 2. Array of arrays: [ [ { username, aiAnalysis } ], [ ... ] ]
+        // 3. Object wrappers: { results: [...] }, { profiles: [...] }, { lotti: [...] }, { batches: [...] }
+        let rawList: any[] = [];
+        if (Array.isArray(parsed)) {
+          if (parsed.length > 0 && Array.isArray(parsed[0])) {
+            rawList = parsed.flat();
+          } else {
+            rawList = parsed;
+          }
+        } else if (parsed && typeof parsed === "object") {
+          if (Array.isArray(parsed.results)) rawList = parsed.results;
+          else if (Array.isArray(parsed.profiles)) rawList = parsed.profiles;
+          else if (Array.isArray(parsed.profiliTotali)) rawList = parsed.profiliTotali;
+          else if (Array.isArray(parsed.data)) rawList = parsed.data;
+          else if (Array.isArray(parsed.lotti)) {
+            rawList = parsed.lotti.flatMap((l: any) => l.profili || l.profiles || l.results || l);
+          } else if (Array.isArray(parsed.batches)) {
+            rawList = parsed.batches.flatMap((b: any) => b.profiles || b.results || b);
+          } else if (parsed.username && parsed.aiAnalysis) {
+            rawList = [parsed];
+          }
+        }
+
+        if (rawList.length === 0) {
+          showToast("Errore: nessun profilo analizzato trovato nel file JSON selezionato.");
           return;
         }
 
         setProfiles((prev) => {
           let updatedCount = 0;
-          const updatedProfiles = prev.map(p => {
-            const importedMatch = parsed.find((imp: any) => 
-              imp.username?.toLowerCase() === p.username.toLowerCase() && imp.aiAnalysis
+          const updatedProfiles = prev.map((p) => {
+            const importedMatch = rawList.find(
+              (imp: any) =>
+                imp.username?.toLowerCase() === p.username.toLowerCase() && imp.aiAnalysis
             );
             if (importedMatch) {
               updatedCount++;
+              const impAi = importedMatch.aiAnalysis;
               return {
                 ...p,
                 isAnalyzed: true,
                 isAnalyzing: false,
+                isPrivatePerson: impAi.isPrivatePerson ?? false,
                 error: undefined,
                 errorCode: undefined,
-                displayName: importedMatch.aiAnalysis.displayName || p.displayName,
+                displayName: impAi.displayName || p.displayName,
                 aiAnalysis: {
-                  displayName: importedMatch.aiAnalysis.displayName || "",
-                  category: importedMatch.aiAnalysis.category || "",
-                  studioType: importedMatch.aiAnalysis.studioType || "",
-                  locationCity: importedMatch.aiAnalysis.locationCity || "",
-                  locationCountry: importedMatch.aiAnalysis.locationCountry || "",
-                  countryCode: importedMatch.aiAnalysis.countryCode || "",
-                  locationState: importedMatch.aiAnalysis.locationState || "",
-                  locationRegion: importedMatch.aiAnalysis.locationRegion || "",
-                  locationStreet: importedMatch.aiAnalysis.locationStreet || "",
-                  mapsLinks: Array.isArray(importedMatch.aiAnalysis.mapsLinks) ? importedMatch.aiAnalysis.mapsLinks : [],
-                  visualStyle: importedMatch.aiAnalysis.visualStyle || "",
-                  keySpecialties: Array.isArray(importedMatch.aiAnalysis.keySpecialties) ? importedMatch.aiAnalysis.keySpecialties : [],
-                  designTags: Array.isArray(importedMatch.aiAnalysis.designTags) ? importedMatch.aiAnalysis.designTags : [],
-                  description: importedMatch.aiAnalysis.description || "",
-                  website: importedMatch.aiAnalysis.website || "",
-                  analyzedAt: new Date().toISOString()
-                }
+                  displayName: impAi.displayName || "",
+                  macroEntity: impAi.macroEntity,
+                  category: impAi.category || "",
+                  subType: impAi.subType || impAi.studioType || "",
+                  studioType: impAi.studioType || impAi.subType || "",
+                  isPrivatePerson: impAi.isPrivatePerson ?? false,
+                  locationCity: impAi.locationCity || "",
+                  locationRegion: impAi.locationRegion || impAi.locationState || "",
+                  locationCountry: impAi.locationCountry || "",
+                  countryCode: impAi.countryCode || "",
+                  locationState: impAi.locationState || "",
+                  locationStreet: impAi.locationStreet || "",
+                  workMode: impAi.workMode || "in_sede",
+                  subCategories: Array.isArray(impAi.subCategories) ? impAi.subCategories : [],
+                  mapsLinks: Array.isArray(impAi.mapsLinks) ? impAi.mapsLinks : [],
+                  visualStyle: impAi.visualStyle || "",
+                  keySpecialties: Array.isArray(impAi.keySpecialties) ? impAi.keySpecialties : [],
+                  designTags: Array.isArray(impAi.designTags) ? impAi.designTags : [],
+                  description: impAi.description || "",
+                  website: impAi.website || "",
+                  analyzedAt: new Date().toISOString(),
+                },
               };
             }
             return p;
           });
-          alert(`Importazione completata con successo. Aggiornati ${updatedCount} profili.`);
+          showToast(`Importazione Gemini completata! Aggiornati ${updatedCount} profili.`);
           return updatedProfiles;
         });
-
       } catch (err: any) {
-        alert("Errore di parsing del JSON: " + err.message);
+        showToast("Errore di parsing del file JSON.");
       }
     };
     reader.readAsText(file);
-    // Reset input
-    e.target.value = '';
+    e.target.value = "";
   };
 
   // Reset to initial curated sample
   const handleResetToSample = () => {
-    if (
-      confirm(
-        "Vuoi ricaricare il database curato con i 15 studi di design e architetti internazionali?"
-      )
-    ) {
-      setProfiles(INITIAL_STUDIOS);
-    }
+    setConfirmModalConfig({
+      isOpen: true,
+      actionType: "reset_sample",
+      onConfirm: () => {
+        setProfiles(INITIAL_STUDIOS);
+        showToast("Database ripristinato ai profili di esempio.");
+      },
+    });
   };
 
   const handleClearAnalyses = () => {
-    if (confirm("Vuoi cancellare i risultati di tutte le analisi fatte finora? (I profili verranno mantenuti, ma segnati come non analizzati)")) {
-      setProfiles(prev => prev.map(p => ({
-        ...p,
-        isAnalyzed: false,
-        aiAnalysis: undefined,
-        errorCode: undefined,
-        error: undefined
-      })));
-    }
+    setConfirmModalConfig({
+      isOpen: true,
+      actionType: "clear_analyses",
+      onConfirm: () => {
+        setProfiles((prev) =>
+          prev.map((p) => ({
+            ...p,
+            isAnalyzed: false,
+            aiAnalysis: undefined,
+            errorCode: undefined,
+            error: undefined,
+          }))
+        );
+        showToast("Risultati delle analisi cancellati. Profili pronti per nuova analisi.");
+      },
+    });
   };
 
   const handleClearAllProfiles = () => {
-    if (confirm("Sei sicuro di voler eliminare TUTTI i profili dal database? Questa azione non può essere annullata.")) {
-      setProfiles([]);
-    }
+    setConfirmModalConfig({
+      isOpen: true,
+      actionType: "clear_all",
+      onConfirm: () => {
+        setProfiles([]);
+        showToast("Taccuino svuotato interamente.");
+      },
+    });
   };
 
   return (
@@ -374,27 +686,53 @@ export default function App() {
       />
 
       {/* Main Content Area */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
-        {/* Controls & Category Filter */}
+      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-5 space-y-5">
+        {/* Top Filter Bar: Search, Macro Entity Tabs, No Privati, Status, Geo, Work Mode */}
         <CategoryFilter
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
-          selectedCategory={selectedCategory}
-          onCategoryChange={setSelectedCategory}
-          categories={categories}
-          selectedCountry={selectedCountry}
-          onCountryChange={setSelectedCountry}
-          countries={countries}
+          selectedMacroEntity={selectedMacroEntity}
+          onMacroEntityChange={setSelectedMacroEntity}
+          macroCounts={macroCounts}
+          noPrivate={noPrivate}
+          onToggleNoPrivate={() => setNoPrivate((prev) => !prev)}
           statusFilter={statusFilter}
           onStatusFilterChange={setStatusFilter}
-          hidePrivateProfiles={hidePrivateProfiles}
-          onHidePrivateProfilesChange={setHidePrivateProfiles}
+          geoMode={geoMode}
+          onGeoModeChange={setGeoMode}
+          selectedGeo={selectedGeo}
+          onGeoChange={setSelectedGeo}
+          availableCities={availableCities}
+          availableRegions={availableRegions}
+          selectedWorkMode={selectedWorkMode}
+          onWorkModeChange={setSelectedWorkMode}
+          workModeCounts={workModeCounts}
           viewMode={viewMode}
           onViewModeChange={setViewMode}
           totalFilteredCount={filteredProfiles.length}
           totalCount={profiles.length}
           theme={theme}
+          onResetAllFilters={handleResetAllFilters}
+          isAnyFilterActive={isAnyFilterActive}
+          selectedTaxonomyCount={selectedTaxonomyTags.length}
+          isTaxonomyOpen={isTaxonomyOpen}
+          onToggleTaxonomy={() => setIsTaxonomyOpen((prev) => !prev)}
         />
+
+        {/* Prominent Cascading Multi-Select Taxonomy Filter Section ("Sotto tutto i filtri delle categorie...") */}
+        {isTaxonomyOpen && (
+          <TaxonomyFilterBar
+            selectedTags={selectedTaxonomyTags}
+            onToggleTag={handleToggleTaxonomyTag}
+            onClearTags={handleClearTaxonomyTags}
+            profiles={profiles}
+            theme={theme}
+            matchMode={taxonomyMatchMode}
+            onMatchModeChange={setTaxonomyMatchMode}
+            customCategories={customCategories}
+            onAddCustomCategory={handleAddCustomCategory}
+          />
+        )}
 
         {/* View Renderings */}
         {viewMode === "table" && (
@@ -458,11 +796,20 @@ export default function App() {
           <StudioInsights
             profiles={profiles}
             onFilterByCategory={(cat) => {
-              setSelectedCategory(cat);
+              handleToggleTaxonomyTag(cat);
               setViewMode("cards");
             }}
             onFilterByCountry={(country) => {
-              setSelectedCountry(country);
+              setGeoMode("city");
+              setSelectedGeo(country);
+              setViewMode("cards");
+            }}
+            onFilterByEntityKind={(kind) => {
+              setSelectedMacroEntity(kind as FilterMacroEntity);
+              setViewMode("cards");
+            }}
+            onFilterBySubType={(subType) => {
+              handleToggleTaxonomyTag(subType);
               setViewMode("cards");
             }}
             theme={theme}
@@ -474,7 +821,7 @@ export default function App() {
       <footer className={`${theme === 'dark' ? 'bg-[#22201D] text-[#A8A29E] border-[#38332E]' : 'bg-[#FAF7F0] text-[#6B635B] border-[#1C1A17]'} border-t-2 py-6 mt-12 text-xs transition-colors`}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className={`flex items-center gap-2 font-hand font-bold text-sm ${theme === 'dark' ? 'text-[#F7F4EB]' : 'text-[#1C1A17]'}`}>
-            <span>Curator AI · Taccuino di Design & Architettura</span>
+            <span>Curator AI · Taccuino di Design, Architettura & Imprese</span>
             <span className="text-[#E63946]">●</span>
             <span className="font-typewriter text-xs opacity-75">disegnato con pastelli e penna</span>
           </div>
@@ -503,18 +850,42 @@ export default function App() {
         theme={theme}
       />
 
-      {/* Studio Detail Modal */}
+      {/* Studio Detail Modal with full manual editing and smart autocomplete */}
       <StudioDetailModal
         profile={selectedProfileForDetail}
         isOpen={selectedProfileForDetail !== null}
         onClose={() => setSelectedProfileForDetail(null)}
-        onUpdateNotes={handleUpdateNotes}
+        onUpdateProfile={handleUpdateProfile}
         onToggleFavorite={handleToggleFavorite}
         onDelete={handleDeleteProfile}
         onResetProfileAnalysis={handleResetProfileAnalysis}
-        onMarkAsPrivate={handleMarkAsPrivate}
+        allNotebookTags={allNotebookTags}
         theme={theme}
       />
+
+      {/* Confirmation Modal */}
+      <ConfirmModal
+        isOpen={confirmModalConfig.isOpen}
+        actionType={confirmModalConfig.actionType}
+        targetName={confirmModalConfig.targetName}
+        onClose={() => setConfirmModalConfig((prev) => ({ ...prev, isOpen: false }))}
+        onConfirm={confirmModalConfig.onConfirm}
+        theme={theme}
+      />
+
+      {/* Toast Notification Banner */}
+      {toastMessage && (
+        <div className="fixed bottom-6 right-6 z-50 animate-in fade-in-50 slide-in-from-bottom-5">
+          <div className={`flex items-center gap-2.5 py-3 px-4 rounded-2xl border-2 shadow-doodle-lg ${
+            theme === 'dark'
+              ? 'bg-[#22201D] text-[#F7F4EB] border-[#E5DFD2]'
+              : 'bg-[#FFF9E6] text-[#1C1A17] border-[#1C1A17]'
+          }`}>
+            <Check className="w-4 h-4 text-[#38B000] shrink-0" />
+            <span className="font-hand font-bold text-sm">{toastMessage}</span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

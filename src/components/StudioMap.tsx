@@ -272,12 +272,17 @@ export const StudioMap: React.FC<StudioMapProps> = ({ profiles, onSelectProfile,
                 anchor={marker.coords}
               >
                 <div
-                  onClick={() => {
+                  role="button"
+                  tabIndex={0}
+                  onClick={(e) => {
+                    e.stopPropagation();
                     setSelectedCityOnMap(selectedCityOnMap === marker.locationStr ? null : marker.locationStr);
                     setCenter(marker.coords);
                     setZoom(7.5);
                   }}
-                  className={`relative flex items-center justify-center cursor-pointer group transition-transform ${
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onTouchStart={(e) => e.stopPropagation()}
+                  className={`relative flex items-center justify-center cursor-pointer group transition-transform pointer-events-auto ${
                     selectedCityOnMap === marker.locationStr ? "scale-125 z-20" : "hover:scale-110 z-10"
                   }`}
                   title={`${marker.locationStr} (Clicca per zoom)`}
@@ -298,12 +303,16 @@ export const StudioMap: React.FC<StudioMapProps> = ({ profiles, onSelectProfile,
           {/* Sticky Note City Overlay Popup */}
           {selectedCityOnMap && coordsCache[selectedCityOnMap] && (
             <Overlay anchor={coordsCache[selectedCityOnMap]!} offset={[0, 45]}>
-              <div className={`${containerBg} border-2 rounded-xl shadow-doodle-lg p-3.5 min-w-[240px] max-w-[300px] z-50`}>
+              <div 
+                onClick={(e) => e.stopPropagation()}
+                onMouseDown={(e) => e.stopPropagation()}
+                className={`${containerBg} border-2 rounded-xl shadow-doodle-lg p-3.5 min-w-[240px] max-w-[300px] z-50 pointer-events-auto`}
+              >
                 <div className="flex items-center justify-between border-b border-current opacity-90 pb-2 mb-2">
                   <div className="font-hand font-bold text-base truncate">
                     📍 {selectedCityOnMap.split(',')[0]}
                   </div>
-                  <button onClick={() => setSelectedCityOnMap(null)} className="opacity-70 hover:opacity-100 p-0.5">
+                  <button onClick={() => setSelectedCityOnMap(null)} className="opacity-70 hover:opacity-100 p-0.5 cursor-pointer">
                     <X className="w-4 h-4" />
                   </button>
                 </div>
@@ -311,7 +320,10 @@ export const StudioMap: React.FC<StudioMapProps> = ({ profiles, onSelectProfile,
                   {mapMarkers.find(m => m.locationStr === selectedCityOnMap)?.profiles.map(p => (
                     <div
                       key={p.id}
-                      onClick={() => onSelectProfile(p)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onSelectProfile(p);
+                      }}
                       className={`group p-2 rounded-lg border cursor-pointer transition-colors ${subBoxBg} hover:border-[#FF5E8E]`}
                     >
                       <div className="text-xs font-bold truncate">
@@ -368,7 +380,10 @@ export const StudioMap: React.FC<StudioMapProps> = ({ profiles, onSelectProfile,
                       {cityProfiles.map((p) => (
                         <button
                           key={p.id}
-                          onClick={() => onSelectProfile(p)}
+                          onClick={() => {
+                            handleZoomToCity(city, country);
+                            onSelectProfile(p);
+                          }}
                           className={`px-2 py-0.5 text-[11px] border rounded-md font-sans transition-colors cursor-pointer ${theme === 'dark' ? 'bg-[#181716] border-[#38332E] hover:bg-[#38332E]' : 'bg-[#FFF] border-[#1C1A17] hover:bg-[#FFD13B]'}`}
                         >
                           {p.aiAnalysis?.displayName || p.username}

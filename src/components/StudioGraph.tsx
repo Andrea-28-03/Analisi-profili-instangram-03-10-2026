@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState, useMemo } from 'react';
 import * as d3 from 'd3';
 import { InstagramProfile } from '../types';
 import { ProfilePreviewContent } from './ProfilePreview';
+import { classifyEntityKind, classifyEntitySubType } from '../utils/entityClassifier';
 
 interface StudioGraphProps {
   profiles: InstagramProfile[];
@@ -9,7 +10,7 @@ interface StudioGraphProps {
   theme?: 'light' | 'dark';
 }
 
-type GroupBy = 'category' | 'locationCountry' | 'visualStyle' | 'designTags';
+type GroupBy = 'category' | 'entityKind' | 'subType' | 'locationCountry' | 'visualStyle' | 'designTags';
 
 const CRAYON_PALETTE = [
   '#FF5E8E', // Crayon Pink
@@ -24,8 +25,8 @@ const CRAYON_PALETTE = [
 
 export const StudioGraph: React.FC<StudioGraphProps> = ({ profiles, onSelectProfile, theme = 'light' }) => {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [groupBy, setGroupBy] = useState<GroupBy>('category');
-  const [colorBy, setColorBy] = useState<GroupBy | 'none'>('designTags');
+  const [groupBy, setGroupBy] = useState<GroupBy>('entityKind');
+  const [colorBy, setColorBy] = useState<GroupBy | 'none'>('subType');
   const [hoveredProfile, setHoveredProfile] = useState<{ profile: InstagramProfile, x: number, y: number } | null>(null);
 
   const colorScale = useMemo(() => {
@@ -60,19 +61,40 @@ export const StudioGraph: React.FC<StudioGraphProps> = ({ profiles, onSelectProf
       const ai = profile.aiAnalysis;
       if (!ai) return;
 
+      const kind = classifyEntityKind(profile);
+      const subType = classifyEntitySubType(profile);
+
       let groupValues: string[] = [];
-      if (groupBy === 'category') groupValues = [ai.category || 'Altro'];
-      else if (groupBy === 'locationCountry') groupValues = [ai.locationCountry || 'Sconosciuta'];
-      else if (groupBy === 'visualStyle') groupValues = [normalizeStyle(ai.visualStyle || '')];
-      else if (groupBy === 'designTags') groupValues = ai.designTags && ai.designTags.length > 0 ? ai.designTags : ['Altro'];
+      if (groupBy === 'entityKind') {
+        groupValues = [kind === 'azienda' ? '🏢 Aziende & Brand' : kind === 'studio' ? '📐 Studi Creativi' : 'Altro'];
+      } else if (groupBy === 'subType') {
+        groupValues = [subType || 'Altro Tipo'];
+      } else if (groupBy === 'category') {
+        groupValues = [ai.category || 'Altro'];
+      } else if (groupBy === 'locationCountry') {
+        groupValues = [ai.locationCountry || 'Sconosciuta'];
+      } else if (groupBy === 'visualStyle') {
+        groupValues = [normalizeStyle(ai.visualStyle || '')];
+      } else if (groupBy === 'designTags') {
+        groupValues = ai.designTags && ai.designTags.length > 0 ? ai.designTags : ['Altro'];
+      }
 
       if (!groupValues || groupValues.length === 0) groupValues = ['Altro'];
 
       let colorValue = '';
-      if (colorBy === 'category') colorValue = ai.category || 'Altro';
-      else if (colorBy === 'locationCountry') colorValue = ai.locationCountry || 'Sconosciuta';
-      else if (colorBy === 'visualStyle') colorValue = normalizeStyle(ai.visualStyle || '');
-      else if (colorBy === 'designTags') colorValue = ai.designTags && ai.designTags.length > 0 ? ai.designTags[0] : 'Altro';
+      if (colorBy === 'entityKind') {
+        colorValue = kind === 'azienda' ? 'Azienda' : 'Studio';
+      } else if (colorBy === 'subType') {
+        colorValue = subType;
+      } else if (colorBy === 'category') {
+        colorValue = ai.category || 'Altro';
+      } else if (colorBy === 'locationCountry') {
+        colorValue = ai.locationCountry || 'Sconosciuta';
+      } else if (colorBy === 'visualStyle') {
+        colorValue = normalizeStyle(ai.visualStyle || '');
+      } else if (colorBy === 'designTags') {
+        colorValue = ai.designTags && ai.designTags.length > 0 ? ai.designTags[0] : 'Altro';
+      }
 
       if (colorValue) colors.add(colorValue);
 
@@ -176,9 +198,24 @@ export const StudioGraph: React.FC<StudioGraphProps> = ({ profiles, onSelectProf
     nodeGroup.filter((d: any) => d.type === 'group')
       .append('circle')
       .attr('r', (d: any) => d.radius)
-      .attr('fill', '#FFD13B')
+      .attr('fill', (d: any) => {
+        if (d.label.includes('Aziende')) return '#FB8500';
+        if (d.label.includes('Studi')) return '#3A86FF';
+        return '#FFD13B';
+      })
       .attr('stroke', '#1C1A17')
-      .attr('stroke-width', 2.5);
+      .attr('stroke-width', 2.5)
+      .on('click', (event, d: any) => {
+        const targetX = d.x || 0;
+        const targetY = d.y || 0;
+        const scale = 2.2;
+        svg.transition()
+          .duration(750)
+          .call(
+            zoom.transform,
+            d3.zoomIdentity.translate(-targetX * scale, -targetY * scale).scale(scale)
+          );
+      });
 
     // Group node labels
     nodeGroup.filter((d: any) => d.type === 'group')
@@ -227,11 +264,12 @@ export const StudioGraph: React.FC<StudioGraphProps> = ({ profiles, onSelectProf
         // Click-to-zoom on node
         const targetX = d.x || 0;
         const targetY = d.y || 0;
+        const scale = 2.2;
         svg.transition()
           .duration(750)
           .call(
             zoom.transform,
-            d3.zoomIdentity.translate(width / 2 - targetX * 2, height / 2 - targetY * 2).scale(2)
+            d3.zoomIdentity.translate(-targetX * scale, -targetY * scale).scale(scale)
           );
 
         if (d.type === 'profile' && d.profile) {
@@ -287,6 +325,8 @@ export const StudioGraph: React.FC<StudioGraphProps> = ({ profiles, onSelectProf
               onChange={(e) => setGroupBy(e.target.value as GroupBy)}
               className={`text-xs font-hand font-bold border-2 rounded-xl py-1.5 px-3 focus:outline-none cursor-pointer ${subBoxBg}`}
             >
+              <option value="entityKind">Natura: Studi vs Aziende</option>
+              <option value="subType">Tipo Specifico (Studio o Azienda)</option>
               <option value="category">Disciplina Creativa</option>
               <option value="locationCountry">Paese / Area Geografica</option>
               <option value="visualStyle">Stile & Linguaggio Visivo</option>
@@ -301,6 +341,8 @@ export const StudioGraph: React.FC<StudioGraphProps> = ({ profiles, onSelectProf
               onChange={(e) => setColorBy(e.target.value as GroupBy | 'none')}
               className={`text-xs font-hand font-bold border-2 rounded-xl py-1.5 px-3 focus:outline-none cursor-pointer ${subBoxBg}`}
             >
+              <option value="subType">Tipo di Studio / Azienda</option>
+              <option value="entityKind">Studi vs Aziende</option>
               <option value="designTags">Tag di Progetto</option>
               <option value="category">Disciplina</option>
               <option value="locationCountry">Paese</option>
@@ -336,6 +378,15 @@ export const StudioGraph: React.FC<StudioGraphProps> = ({ profiles, onSelectProf
             }}
           >
             <div className={`${containerBg} border-2 rounded-xl p-3 shadow-doodle-sm min-w-[200px] max-w-[260px]`}>
+              <div className="flex items-center gap-1.5 mb-1 text-[11px] font-hand font-bold">
+                {classifyEntityKind(hoveredProfile.profile) === 'azienda' ? (
+                  <span className="text-[#FB8500]">🏢 Azienda</span>
+                ) : (
+                  <span className="text-[#3A86FF]">📐 Studio</span>
+                )}
+                <span>·</span>
+                <span className="opacity-80 font-normal truncate">{classifyEntitySubType(hoveredProfile.profile)}</span>
+              </div>
               <div className="font-sans font-bold text-xs truncate">
                 {hoveredProfile.profile.aiAnalysis?.displayName || hoveredProfile.profile.username}
               </div>
