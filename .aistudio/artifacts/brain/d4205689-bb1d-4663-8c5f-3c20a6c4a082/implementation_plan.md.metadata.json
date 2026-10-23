@@ -1,6 +1,6 @@
 {
-  "summary":  "Piano di implementazione per il redesign della ricerca, filtri a cascata cumulativi, modifica completa dell'analisi con suggerimento tag e aggiornamento del prompt di esportazione Gemini.",
-  "updatedAt":  "2026-10-22T10:50:28.974409243Z",
+  "summary":  "Piano di implementazione revisionato: integrazione completa del master prompt della tassonomia (stili design, movimenti artistici, tipologie specifiche, manifatture, studi, università, privati) e sistema di ricerca online multi-query (bio Instagram, blog di settore, notizie, sito ufficiale e linguaggi visivi).",
+  "updatedAt":  "2026-10-23T10:11:23.681081546Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

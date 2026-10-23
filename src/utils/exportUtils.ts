@@ -84,9 +84,11 @@ export function exportToCSV(profiles: InstagramProfile[], filename = "instagram_
   URL.revokeObjectURL(url);
 }
 
-export function copyToClipboardTSV(profiles: InstagramProfile[]): Promise<void> {
+import { copyToClipboard } from "./clipboard";
+
+export async function copyToClipboardTSV(profiles: InstagramProfile[]): Promise<boolean> {
   const data = profiles.map(formatProfileForExport);
-  if (data.length === 0) return Promise.resolve();
+  if (data.length === 0) return false;
 
   const headers = Object.keys(data[0]);
   const rows = data.map((item) => {
@@ -99,7 +101,7 @@ export function copyToClipboardTSV(profiles: InstagramProfile[]): Promise<void> 
   });
 
   const tsv = [headers.join("\t"), ...rows].join("\n");
-  return navigator.clipboard.writeText(tsv);
+  return copyToClipboard(tsv);
 }
 
 export function exportToJSON(profiles: InstagramProfile[], filename = "instagram_design_database_backup.json") {

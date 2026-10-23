@@ -18,6 +18,7 @@ import {
   Bookmark,
   Sun,
   Moon,
+  Zap,
 } from "lucide-react";
 import { InstagramProfile } from "../types";
 import { exportToExcel, exportToCSV, copyToClipboardTSV, exportToJSON } from "../utils/exportUtils";
@@ -32,6 +33,7 @@ interface HeaderProps {
   onClearAllProfiles: () => void;
   onImportGeminiPro: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onOpenExportGemini: () => void;
+  onOpenAutoAnalysis?: () => void;
   theme: 'light' | 'dark';
   onThemeChange: (theme: 'light' | 'dark') => void;
 }
@@ -44,6 +46,7 @@ export const Header: React.FC<HeaderProps> = ({
   onClearAllProfiles,
   onImportGeminiPro,
   onOpenExportGemini,
+  onOpenAutoAnalysis,
   theme,
   onThemeChange,
 }) => {
@@ -74,11 +77,21 @@ export const Header: React.FC<HeaderProps> = ({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  const [copiedNotificationText, setCopiedNotificationText] = useState("Tabella copiata negli appunti! Ora puoi incollarla con Ctrl+V nel tuo foglio di calcolo.");
+
   const handleCopyTSV = async () => {
-    await copyToClipboardTSV(profiles);
-    setCopiedNotification(true);
     setShowExportMenu(false);
-    setTimeout(() => setCopiedNotification(false), 2500);
+    const success = await copyToClipboardTSV(profiles);
+    if (success) {
+      setCopiedNotificationText("Tabella copiata negli appunti! Ora puoi incollarla con Ctrl+V nel tuo foglio di calcolo.");
+      setCopiedNotification(true);
+      setTimeout(() => setCopiedNotification(false), 3000);
+    } else {
+      exportToCSV(profiles);
+      setCopiedNotificationText("Accesso agli appunti non consentito dal browser: abbiamo scaricato il file CSV per il tuo foglio di calcolo!");
+      setCopiedNotification(true);
+      setTimeout(() => setCopiedNotification(false), 4500);
+    }
   };
 
   const headerBg = theme === 'dark' ? 'bg-[#181716] text-[#F7F4EB] border-[#E5DFD2]' : 'bg-[#FAF7F0] text-[#1C1A17] border-[#1C1A17]';
@@ -109,6 +122,24 @@ export const Header: React.FC<HeaderProps> = ({
             <div className="hidden md:block">
               <SketchbookMascot totalCount={totalCount} curatedCount={favoritesCount} />
             </div>
+
+            {/* Online AI Analysis Button */}
+            {onOpenAutoAnalysis && (
+              <button
+                id="online-ai-btn"
+                onClick={onOpenAutoAnalysis}
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-medium border-2 shadow-doodle-sm btn-doodle cursor-pointer whitespace-nowrap bg-[#FFD13B] hover:bg-[#FFC01E] border-[#1C1A17] text-[#1C1A17]"
+                title="Analisi automatica online con Google AI Studio (Gemini Free Tier)"
+              >
+                <Zap className="w-3.5 h-3.5 fill-[#1C1A17]" />
+                <span className="font-hand text-sm font-bold">Analisi Online AI</span>
+                {pendingCount > 0 && (
+                  <span className="font-typewriter text-[10px] px-1.5 py-0.2 rounded-full bg-[#1C1A17] text-[#FFD13B] font-bold">
+                    {pendingCount}
+                  </span>
+                )}
+              </button>
+            )}
 
             {/* Import Button */}
             <button
@@ -221,6 +252,32 @@ export const Header: React.FC<HeaderProps> = ({
 
                   <div className="my-1 border-t border-current opacity-20" />
                   <div className="px-3.5 py-1 text-[10px] font-typewriter uppercase tracking-wider opacity-80 flex items-center gap-1.5">
+                    <Zap className="w-3 h-3 text-[#FF8500]" />
+                    <span>Intelligenza Artificiale</span>
+                  </div>
+
+                  {onOpenAutoAnalysis && (
+                    <button
+                      onClick={() => {
+                        onOpenAutoAnalysis();
+                        setShowExportMenu(false);
+                      }}
+                      className="w-full text-left px-3.5 py-2 hover:bg-[#FFD13B]/30 flex items-center gap-2.5 transition cursor-pointer"
+                    >
+                      <div className="w-7 h-7 rounded-lg bg-[#FFD13B]/20 border border-[#FFD13B] flex items-center justify-center text-[#1C1A17] dark:text-[#FFD13B] shrink-0">
+                        <Zap className="w-4 h-4 fill-current" />
+                      </div>
+                      <div>
+                        <div className="font-bold font-hand text-sm">Analisi Online Automatica</div>
+                        <div className="text-[11px] opacity-75">
+                          API Google Gemini Free ({pendingCount} in attesa)
+                        </div>
+                      </div>
+                    </button>
+                  )}
+
+                  <div className="my-1 border-t border-current opacity-20" />
+                  <div className="px-3.5 py-1 text-[10px] font-typewriter uppercase tracking-wider opacity-80 flex items-center gap-1.5">
                     <Sparkles className="w-3 h-3 text-[#E63946]" />
                     <span>Gemini Batch Offline</span>
                   </div>
@@ -245,17 +302,18 @@ export const Header: React.FC<HeaderProps> = ({
                     <input 
                       type="file" 
                       accept=".json" 
+                      multiple
                       className="hidden" 
                       onChange={(e) => {
                         onImportGeminiPro(e);
                         setShowExportMenu(false);
                       }} 
                     />
-                    <Upload className="w-4 h-4 opacity-75" />
+                    <Upload className="w-4 h-4 opacity-75 text-[#38B000]" />
                     <div>
-                      <div className="font-hand font-bold text-sm">Carica analisi (.json)</div>
+                      <div className="font-hand font-bold text-sm">Importa Analisi Gemini (.json)</div>
                       <div className="text-[11px] opacity-75">
-                        Importa lotti analizzati
+                        File unificato o lotti multipli
                       </div>
                     </div>
                   </label>
@@ -381,7 +439,7 @@ export const Header: React.FC<HeaderProps> = ({
           <div className="mt-3 py-2 px-3.5 bg-[#FFF9E6] border-2 border-[#1C1A17] rounded-xl text-xs text-[#1C1A17] flex items-center gap-2 shadow-doodle-sm animate-bounce">
             <Check className="w-4 h-4 text-[#38B000]" />
             <span className="font-hand text-sm font-bold">
-              Tabella copiata negli appunti! Ora puoi incollarla con Ctrl+V nel tuo foglio di calcolo.
+              {copiedNotificationText}
             </span>
           </div>
         )}

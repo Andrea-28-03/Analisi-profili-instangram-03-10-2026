@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import {
   ExternalLink,
   Sparkles,
@@ -9,10 +9,19 @@ import {
   Bookmark,
   RotateCcw,
   UserX,
+  Copy,
+  Check,
+  Zap,
 } from "lucide-react";
 import { InstagramProfile } from "../types";
 import { ProfilePreview } from "./ProfilePreview";
-import { classifyEntityKind, classifyEntitySubType } from "../utils/entityClassifier";
+import {
+  classifyMacroEntity,
+  classifyEntitySubType,
+  MACRO_ENTITY_BADGE_MAP,
+  COLLABORATION_RELATION_CONFIG,
+} from "../utils/entityClassifier";
+import { copyToClipboard } from "../utils/clipboard";
 
 interface StudioCardProps {
   profile: InstagramProfile;
@@ -20,6 +29,7 @@ interface StudioCardProps {
   onToggleFavorite: () => void;
   onResetProfileAnalysis: () => void;
   onMarkAsPrivate: () => void;
+  onAnalyzeSingle?: () => void;
   theme?: 'light' | 'dark';
 }
 
@@ -35,12 +45,18 @@ export const StudioCard: React.FC<StudioCardProps> = ({
   onToggleFavorite,
   onResetProfileAnalysis,
   onMarkAsPrivate,
+  onAnalyzeSingle,
   theme = 'light',
 }) => {
+  const [copiedHandle, setCopiedHandle] = useState(false);
   const ai = profile.aiAnalysis;
   const studioName = ai?.displayName || profile.displayName || profile.username;
-  const entityKind = classifyEntityKind(profile);
+  const macro = classifyMacroEntity(profile);
+  const macroBadge = MACRO_ENTITY_BADGE_MAP[macro] || MACRO_ENTITY_BADGE_MAP.studio;
   const subType = classifyEntitySubType(profile);
+  const contact = profile.contactInfo;
+  const hasContactRelations = (contact?.relations?.length || 0) > 0;
+  const hasTaggedPeople = (contact?.taggedPeople?.length || 0) > 0;
 
   const tapeIndex = Math.abs(profile.id.split('').reduce((acc, c) => acc + c.charCodeAt(0), 0)) % TAPE_COLORS.length;
   const tapeClass = TAPE_COLORS[tapeIndex];
@@ -112,11 +128,10 @@ export const StudioCard: React.FC<StudioCardProps> = ({
 
         {/* Entity Kind & Sub-Type Indicator */}
         <div className="flex items-center gap-1.5 text-xs font-hand font-bold mb-2">
-          {entityKind === "azienda" ? (
-            <span className="text-[#FB8500] inline-flex items-center gap-1">🏢 Azienda</span>
-          ) : entityKind === "studio" ? (
-            <span className="text-[#3A86FF] inline-flex items-center gap-1">📐 Studio</span>
-          ) : null}
+          <span className={`${macroBadge.color} inline-flex items-center gap-1 shrink-0`}>
+            <span>{macroBadge.icon}</span>
+            <span>{macroBadge.label}</span>
+          </span>
           <span className="opacity-40 font-normal">·</span>
           <span className="font-sans font-medium text-[11px] opacity-80 truncate">{subType}</span>
         </div>
@@ -128,12 +143,31 @@ export const StudioCard: React.FC<StudioCardProps> = ({
               {studioName}
             </h3>
           </ProfilePreview>
-          <div className="flex items-center gap-2 mt-0.5">
+          <div className="flex items-center gap-1.5 mt-0.5">
             <ProfilePreview profile={profile}>
               <span className="text-xs font-typewriter opacity-75 cursor-help hover:opacity-100 transition-colors">
                 @{profile.username}
               </span>
             </ProfilePreview>
+            <button
+              type="button"
+              onClick={async (e) => {
+                e.stopPropagation();
+                const ok = await copyToClipboard(`@${profile.username}`);
+                if (ok) {
+                  setCopiedHandle(true);
+                  setTimeout(() => setCopiedHandle(false), 2000);
+                }
+              }}
+              className="opacity-50 hover:opacity-100 p-0.5 rounded hover:bg-black/10 transition cursor-pointer"
+              title={copiedHandle ? "Copiato negli appunti!" : "Copia @username"}
+            >
+              {copiedHandle ? (
+                <Check className="w-3 h-3 text-[#38B000]" />
+              ) : (
+                <Copy className="w-3 h-3" />
+              )}
+            </button>
             <a
               href={profile.profileUrl}
               target="_blank"
@@ -159,6 +193,47 @@ export const StudioCard: React.FC<StudioCardProps> = ({
             )}
           </div>
         </div>
+
+        {/* Contact & Collaborations Strip (if present) */}
+        {(hasContactRelations || hasTaggedPeople) && (
+          <div className={`mb-3 p-2.5 rounded-xl border space-y-1.5 ${theme === 'dark' ? 'bg-[#181716] border-[#38332E]' : 'bg-[#F3EFE6]/70 border-[#D6CEBF]'}`}>
+            {hasContactRelations && (
+              <div className="flex flex-wrap gap-1">
+                {contact!.relations.map((rel) => {
+                  const cfg = COLLABORATION_RELATION_CONFIG[rel];
+                  if (!cfg) return null;
+                  return (
+                    <span
+                      key={rel}
+                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-hand font-bold border ${cfg.badgeClass}`}
+                    >
+                      <span>{cfg.icon}</span>
+                      <span>{cfg.shortLabel}</span>
+                    </span>
+                  );
+                })}
+              </div>
+            )}
+            {hasTaggedPeople && (
+              <div className="flex flex-wrap gap-1">
+                {contact!.taggedPeople.map((person) => (
+                  <span
+                    key={person.id}
+                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-sans font-medium border ${
+                      theme === 'dark'
+                        ? 'bg-[#25221E] text-[#F7F4EB] border-[#44403C]'
+                        : 'bg-[#FFFDF9] text-[#1C1A17] border-[#1C1A17]/40'
+                    }`}
+                  >
+                    <span>👤</span>
+                    <span className="font-bold">{person.name}</span>
+                    {person.role && <span className="opacity-70">({person.role})</span>}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Visual Style & Description */}
         {ai ? (
@@ -195,9 +270,27 @@ export const StudioCard: React.FC<StudioCardProps> = ({
         ) : (
           <div className={`p-4 rounded-xl border-2 border-dashed text-center text-xs my-3 ${theme === 'dark' ? 'bg-[#181716] border-[#38332E]' : 'bg-[#F7F4EB] border-[#D6CEBF]'}`}>
             <p className="font-hand font-bold text-sm">Profilo non ancora analizzato</p>
-            <p className="text-[11px] mt-0.5 opacity-75">
+            <p className="text-[11px] mt-0.5 opacity-75 mb-2.5">
               In attesa di classificazione (Studio/Azienda, stile, città e tag).
             </p>
+            {onAnalyzeSingle && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onAnalyzeSingle();
+                }}
+                disabled={profile.isAnalyzing}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-hand font-bold bg-[#FFD13B] text-[#1C1A17] border border-[#1C1A17] shadow-xs hover:scale-102 transition cursor-pointer"
+              >
+                {profile.isAnalyzing ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Zap className="w-3.5 h-3.5 fill-current" />
+                )}
+                <span>{profile.isAnalyzing ? "Analisi in corso..." : "Analizza ora con Gemini"}</span>
+              </button>
+            )}
           </div>
         )}
       </div>

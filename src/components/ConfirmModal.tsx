@@ -1,7 +1,13 @@
 import React from "react";
-import { AlertTriangle, Trash2, Eraser, RotateCcw, X, Check } from "lucide-react";
+import { AlertTriangle, Trash2, Eraser, RotateCcw, X, Check, UserX } from "lucide-react";
 
-export type ConfirmActionType = "clear_analyses" | "clear_all" | "reset_sample" | "delete_profile";
+export type ConfirmActionType =
+  | "clear_analyses"
+  | "clear_all"
+  | "reset_sample"
+  | "delete_profile"
+  | "reset_profile_analysis"
+  | "mark_as_private";
 
 interface ConfirmModalProps {
   isOpen: boolean;
@@ -58,9 +64,27 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
         return {
           icon: <AlertTriangle className="w-8 h-8 text-[#E63946]" />,
           title: "Elimina Profilo",
-          description: `Rimuovere ${targetName || 'questo profilo'} dal taccuino?`,
+          description: `Rimuovere definitivamente ${targetName || 'questo profilo'} dal taccuino?`,
           confirmText: "Sì, elimina",
           confirmBg: "bg-[#E63946] hover:bg-[#C9184A] text-white border-2 border-[#1C1A17]",
+          tapeClass: "washi-tape-pink",
+        };
+      case "reset_profile_analysis":
+        return {
+          icon: <RotateCcw className="w-8 h-8 text-[#FF7844]" />,
+          title: "Smarca e Rianalizza Profilo",
+          description: `Vuoi azzerare i tratti e le informazioni estratte da Gemini per ${targetName || 'questo profilo'}? Il profilo tornerà nello stato 'Da analizzare' per permettere una nuova estrazione.`,
+          confirmText: "Sì, smarca e rianalizza",
+          confirmBg: "bg-[#FF7844] hover:bg-[#E05622] text-white border-2 border-[#1C1A17]",
+          tapeClass: "washi-tape-yellow",
+        };
+      case "mark_as_private":
+        return {
+          icon: <UserX className="w-8 h-8 text-[#8338EC]" />,
+          title: "Imposta come Amico / Privato",
+          description: `Vuoi contrassegnare ${targetName || 'questo profilo'} come contatto personale o privato? Verrà escluso dalle directory degli studi di design e architettura.`,
+          confirmText: "Sì, imposta come privato",
+          confirmBg: "bg-[#8338EC] hover:bg-[#6D28D9] text-white border-2 border-[#1C1A17]",
           tapeClass: "washi-tape-pink",
         };
     }
@@ -69,7 +93,7 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
   const config = getConfig();
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in-50">
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in-50">
       <div className={`relative w-full max-w-md ${modalBg} border-2 rounded-2xl shadow-doodle-lg p-6 overflow-hidden transition-colors`}>
         {/* Washi Tape */}
         <div className={`absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 h-5 w-28 ${config.tapeClass} rounded-xs -rotate-1 pointer-events-none z-20`} />

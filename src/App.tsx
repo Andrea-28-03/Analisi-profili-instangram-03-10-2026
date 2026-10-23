@@ -10,7 +10,9 @@ import { StudioInsights } from "./components/StudioInsights";
 import { ImportModal } from "./components/ImportModal";
 import { StudioDetailModal } from "./components/StudioDetailModal";
 import { ExportGeminiModal } from "./components/ExportGeminiModal";
+import { AutoAnalysisQueueModal } from "./components/AutoAnalysisQueueModal";
 import { ConfirmModal, ConfirmActionType } from "./components/ConfirmModal";
+import { analyzeProfileOnline } from "./services/geminiOnlineService";
 import {
   InstagramProfile,
   ViewMode,
@@ -90,6 +92,7 @@ export default function App() {
 
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [isExportGeminiModalOpen, setIsExportGeminiModalOpen] = useState(false);
+  const [isAutoAnalysisModalOpen, setIsAutoAnalysisModalOpen] = useState(false);
   const [selectedProfileForDetail, setSelectedProfileForDetail] =
     useState<InstagramProfile | null>(null);
 
@@ -227,120 +230,127 @@ export default function App() {
     return Array.from(set);
   }, [profiles, customCategories]);
 
-  // Filtered Profiles
-  const filteredProfiles = useMemo(() => {
-    return profiles.filter((p) => {
+  // Pre-index profiles for ultra-fast filtering and searching (eliminates UI lag on large collections)
+  const indexedProfiles = useMemo(() => {
+    return profiles.map((p) => {
       const ai = p.aiAnalysis;
       const studioName = ai?.displayName || p.displayName || p.username;
+      const macro = classifyMacroEntity(p);
+      const isPrivate =
+        p.isPrivatePerson === true ||
+        ai?.isPrivatePerson === true ||
+        macro === "privato" ||
+        macro === "amici" ||
+        ai?.category === "Persona Privata / Amico";
 
-      // 1. Search Query
-      if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase().trim();
-        const matchesUsername = p.username.toLowerCase().includes(q);
-        const matchesName = studioName.toLowerCase().includes(q);
-        const matchesCity = ai?.locationCity?.toLowerCase().includes(q) || false;
-        const matchesRegion = (ai?.locationRegion || ai?.locationState)?.toLowerCase().includes(q) || false;
-        const matchesCountry = ai?.locationCountry?.toLowerCase().includes(q) || false;
-        const matchesStyle = ai?.visualStyle?.toLowerCase().includes(q) || false;
-        const matchesSpecialties = ai?.keySpecialties?.some((s) => s.toLowerCase().includes(q)) || false;
-        const matchesDesignTags = ai?.designTags?.some((s) => s.toLowerCase().includes(q)) || false;
-        const matchesSubCategories = ai?.subCategories?.some((s) => s.toLowerCase().includes(q)) || false;
-        const matchesNotes = p.notes?.toLowerCase().includes(q) || false;
+      const rawTags = [
+        ...(ai?.subCategories || []),
+        ...(ai?.designTags || []),
+        ...(ai?.keySpecialties || []),
+        ai?.subType,
+        ai?.studioType,
+        ai?.category,
+      ].filter(Boolean) as string[];
 
-        if (
-          !matchesUsername &&
-          !matchesName &&
-          !matchesCity &&
-          !matchesRegion &&
-          !matchesCountry &&
-          !matchesStyle &&
-          !matchesSpecialties &&
-          !matchesDesignTags &&
-          !matchesSubCategories &&
-          !matchesNotes
-        ) {
-          return false;
-        }
-      }
+      const tagSet = new Set<string>();
+      const tagLowerList: string[] = [];
+      rawTags.forEach((t) => {
+        const clean = t.trim().toLowerCase();
+        tagSet.add(clean);
+        tagLowerList.push(clean);
+      });
 
-      // 2. Macro Entity Filter
-      if (selectedMacroEntity !== "all") {
-        const macro = classifyMacroEntity(p);
-        if (macro !== selectedMacroEntity) {
-          return false;
-        }
-      }
+      const searchCorpus = [
+        p.username,
+        studioName,
+        ai?.locationCity || "",
+        ai?.locationRegion || ai?.locationState || "",
+        ai?.locationCountry || "",
+        ai?.visualStyle || "",
+        ai?.description || "",
+        p.notes || "",
+        ...rawTags,
+      ]
+        .join(" ")
+        .toLowerCase();
 
-      // 3. Dedicated "No privati" filter
-      if (noPrivate) {
-        const isPriv =
-          p.isPrivatePerson === true ||
-          ai?.isPrivatePerson === true ||
-          classifyMacroEntity(p) === "privato" ||
-          classifyMacroEntity(p) === "amici" ||
-          ai?.category === "Persona Privata / Amico";
-
-        if (isPriv) return false;
-      }
-
-      // 4. Status Filter
-      if (statusFilter === "analyzed" && !p.isAnalyzed) return false;
-      if (statusFilter === "pending" && p.isAnalyzed) return false;
-      if (statusFilter === "favorites" && !p.isFavorite) return false;
-
-      // 5. Geo Filter (City vs Region)
-      if (selectedGeo !== "all") {
-        if (geoMode === "city") {
-          if (ai?.locationCity !== selectedGeo) return false;
-        } else {
-          const region = ai?.locationRegion || ai?.locationState;
-          if (region !== selectedGeo) return false;
-        }
-      }
-
-      // 6. Work Space Mode Filter
-      if (selectedWorkMode !== "all") {
-        if (ai?.workMode !== selectedWorkMode) return false;
-      }
-
-      // 7. Additive Cascading Taxonomy Tags Filter
-      if (selectedTaxonomyTags.length > 0) {
-        const profileTags = [
-          ...(ai?.subCategories || []),
-          ...(ai?.designTags || []),
-          ...(ai?.keySpecialties || []),
-          ai?.subType,
-          ai?.studioType,
-          ai?.category,
-        ]
-          .filter(Boolean)
-          .map((t) => (t as string).toLowerCase().trim());
-
-        if (taxonomyMatchMode === "or") {
-          // Profile must match AT LEAST ONE of selected tags
-          const hasAny = selectedTaxonomyTags.some((selected) => {
-            const lowerSel = selected.toLowerCase().trim();
-            return profileTags.some(
-              (pt) => pt === lowerSel || pt.includes(lowerSel) || lowerSel.includes(pt)
-            );
-          });
-          if (!hasAny) return false;
-        } else {
-          // Profile must match ALL selected tags
-          const hasAll = selectedTaxonomyTags.every((selected) => {
-            const lowerSel = selected.toLowerCase().trim();
-            return profileTags.some(
-              (pt) => pt === lowerSel || pt.includes(lowerSel) || lowerSel.includes(pt)
-            );
-          });
-          if (!hasAll) return false;
-        }
-      }
-
-      return true;
+      return {
+        profile: p,
+        macro,
+        isPrivate,
+        searchCorpus,
+        tagSet,
+        tagLowerList,
+      };
     });
+  }, [profiles]);
+
+  // Filtered Profiles (Blazing fast O(1) checks)
+  const filteredProfiles = useMemo(() => {
+    const q = searchQuery.toLowerCase().trim();
+    const hasSearch = q.length > 0;
+    const lowerSelectedTags = selectedTaxonomyTags.map((t) => t.toLowerCase().trim());
+    const hasTags = lowerSelectedTags.length > 0;
+
+    return indexedProfiles
+      .filter(({ profile: p, macro, isPrivate, searchCorpus, tagSet, tagLowerList }) => {
+        const ai = p.aiAnalysis;
+
+        // 1. Search Query (Fast single substring lookup)
+        if (hasSearch && !searchCorpus.includes(q)) {
+          return false;
+        }
+
+        // 2. Macro Entity Filter
+        if (selectedMacroEntity !== "all" && macro !== selectedMacroEntity) {
+          return false;
+        }
+
+        // 3. Dedicated "No privati" filter
+        if (noPrivate && isPrivate) {
+          return false;
+        }
+
+        // 4. Status Filter
+        if (statusFilter === "analyzed" && !p.isAnalyzed) return false;
+        if (statusFilter === "pending" && p.isAnalyzed) return false;
+        if (statusFilter === "favorites" && !p.isFavorite) return false;
+
+        // 5. Geo Filter (City vs Region)
+        if (selectedGeo !== "all") {
+          if (geoMode === "city") {
+            if (ai?.locationCity !== selectedGeo) return false;
+          } else {
+            const region = ai?.locationRegion || ai?.locationState;
+            if (region !== selectedGeo) return false;
+          }
+        }
+
+        // 6. Work Space Mode Filter
+        if (selectedWorkMode !== "all") {
+          if (ai?.workMode !== selectedWorkMode) return false;
+        }
+
+        // 7. Additive Cascading Taxonomy Tags Filter
+        if (hasTags) {
+          if (taxonomyMatchMode === "or") {
+            const hasAny = lowerSelectedTags.some(
+              (sel) => tagSet.has(sel) || tagLowerList.some((pt) => pt.includes(sel) || sel.includes(pt))
+            );
+            if (!hasAny) return false;
+          } else {
+            const hasAll = lowerSelectedTags.every(
+              (sel) => tagSet.has(sel) || tagLowerList.some((pt) => pt.includes(sel) || sel.includes(pt))
+            );
+            if (!hasAll) return false;
+          }
+        }
+
+        return true;
+      })
+      .map((item) => item.profile);
   }, [
-    profiles,
+    indexedProfiles,
     searchQuery,
     selectedMacroEntity,
     noPrivate,
@@ -413,6 +423,72 @@ export default function App() {
     showToast(`Scheda aggiornata: "${updatedProfile.aiAnalysis?.displayName || updatedProfile.username}"`);
   };
 
+  // Immediate update from online AI analysis (single or queue)
+  const handleUpdateProfileAnalysis = (profileId: string, aiAnalysis: any) => {
+    setProfiles((prev) =>
+      prev.map((p) =>
+        p.id === profileId
+          ? {
+              ...p,
+              isAnalyzed: true,
+              isAnalyzing: false,
+              error: undefined,
+              aiAnalysis,
+            }
+          : p
+      )
+    );
+    if (selectedProfileForDetail?.id === profileId) {
+      setSelectedProfileForDetail((prev) =>
+        prev
+          ? {
+              ...prev,
+              isAnalyzed: true,
+              isAnalyzing: false,
+              error: undefined,
+              aiAnalysis,
+            }
+          : null
+      );
+    }
+  };
+
+  // Single profile 1-click online analysis
+  const handleAnalyzeSingleProfile = async (id: string) => {
+    const profile = profiles.find((p) => p.id === id);
+    if (!profile) return;
+
+    setProfiles((prev) =>
+      prev.map((p) => (p.id === id ? { ...p, isAnalyzing: true, error: undefined } : p))
+    );
+    showToast(`Analisi di @${profile.username} con Gemini in corso...`);
+
+    const result = await analyzeProfileOnline({
+      username: profile.username,
+      profileUrl: profile.profileUrl,
+      displayName: profile.displayName || profile.aiAnalysis?.displayName,
+      notes: profile.notes,
+    });
+
+    if (result.success && result.aiAnalysis) {
+      handleUpdateProfileAnalysis(id, result.aiAnalysis);
+      showToast(`@${profile.username} analizzato con successo!`);
+    } else {
+      setProfiles((prev) =>
+        prev.map((p) =>
+          p.id === id
+            ? {
+                ...p,
+                isAnalyzing: false,
+                error: result.error || "Errore di analisi",
+              }
+            : p
+        )
+      );
+      showToast(result.error || `Errore durante l'analisi di @${profile.username}`);
+    }
+  };
+
   // Delete profile
   const handleDeleteProfile = (id: string) => {
     const profile = profiles.find((p) => p.id === id);
@@ -428,92 +504,112 @@ export default function App() {
     });
   };
 
-  // Mark profile as Private/Friend
+  // Mark profile as Private/Friend (with centered confirmation modal)
   const handleMarkAsPrivate = (id: string) => {
-    setProfiles((prev) =>
-      prev.map((p) =>
-        p.id === id
-          ? {
-              ...p,
-              isPrivatePerson: true,
-              isAnalyzed: true,
-              aiAnalysis: {
-                ...p.aiAnalysis,
-                displayName: p.displayName || p.username,
-                category: "Persona Privata / Amico",
-                macroEntity: "privato",
-                studioType: "Persona Privata",
-                isPrivatePerson: true,
-                locationCity: p.aiAnalysis?.locationCity || "",
-                locationCountry: p.aiAnalysis?.locationCountry || "",
-                countryCode: p.aiAnalysis?.countryCode || "",
-                visualStyle: "",
-                keySpecialties: [],
-                description: "Profilo personale o privato.",
-                analyzedAt: p.aiAnalysis?.analyzedAt || new Date().toISOString(),
-              },
-            }
-          : p
-      )
-    );
-    if (selectedProfileForDetail?.id === id) {
-      setSelectedProfileForDetail((prev) =>
-        prev
-          ? {
-              ...prev,
-              isPrivatePerson: true,
-              isAnalyzed: true,
-              aiAnalysis: {
-                ...prev.aiAnalysis,
-                displayName: prev.displayName || prev.username,
-                category: "Persona Privata / Amico",
-                macroEntity: "privato",
-                studioType: "Persona Privata",
-                isPrivatePerson: true,
-                locationCity: prev.aiAnalysis?.locationCity || "",
-                locationCountry: prev.aiAnalysis?.locationCountry || "",
-                countryCode: prev.aiAnalysis?.countryCode || "",
-                visualStyle: "",
-                keySpecialties: [],
-                description: "Profilo personale o privato.",
-                analyzedAt: prev.aiAnalysis?.analyzedAt || new Date().toISOString(),
-              },
-            }
-          : null
-      );
-    }
-    showToast("Profilo contrassegnato come Privato/Amico");
+    const profile = profiles.find((p) => p.id === id);
+    const targetName = profile?.aiAnalysis?.displayName || profile?.displayName || profile?.username;
+
+    setConfirmModalConfig({
+      isOpen: true,
+      actionType: "mark_as_private",
+      targetName: targetName ? `@${targetName}` : undefined,
+      onConfirm: () => {
+        setProfiles((prev) =>
+          prev.map((p) =>
+            p.id === id
+              ? {
+                  ...p,
+                  isPrivatePerson: true,
+                  isAnalyzed: true,
+                  aiAnalysis: {
+                    ...p.aiAnalysis,
+                    displayName: p.displayName || p.username,
+                    category: "Persona Privata / Amico",
+                    macroEntity: "privato",
+                    studioType: "Persona Privata",
+                    isPrivatePerson: true,
+                    locationCity: p.aiAnalysis?.locationCity || "",
+                    locationCountry: p.aiAnalysis?.locationCountry || "",
+                    countryCode: p.aiAnalysis?.countryCode || "",
+                    visualStyle: "",
+                    keySpecialties: [],
+                    description: "Profilo personale o privato.",
+                    analyzedAt: p.aiAnalysis?.analyzedAt || new Date().toISOString(),
+                  },
+                }
+              : p
+          )
+        );
+        if (selectedProfileForDetail?.id === id) {
+          setSelectedProfileForDetail((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  isPrivatePerson: true,
+                  isAnalyzed: true,
+                  aiAnalysis: {
+                    ...prev.aiAnalysis,
+                    displayName: prev.displayName || prev.username,
+                    category: "Persona Privata / Amico",
+                    macroEntity: "privato",
+                    studioType: "Persona Privata",
+                    isPrivatePerson: true,
+                    locationCity: prev.aiAnalysis?.locationCity || "",
+                    locationCountry: prev.aiAnalysis?.locationCountry || "",
+                    countryCode: prev.aiAnalysis?.countryCode || "",
+                    visualStyle: "",
+                    keySpecialties: [],
+                    description: "Profilo personale o privato.",
+                    analyzedAt: prev.aiAnalysis?.analyzedAt || new Date().toISOString(),
+                  },
+                }
+              : null
+          );
+        }
+        showToast(`Profilo "${targetName || id}" contrassegnato come Privato/Amico`);
+      },
+    });
   };
 
-  // Reset analysis for a single profile
+  // Reset analysis for a single profile (with centered confirmation modal)
   const handleResetProfileAnalysis = (id: string) => {
-    setProfiles((prev) =>
-      prev.map((p) =>
-        p.id === id
-          ? {
-              ...p,
-              isAnalyzed: false,
-              aiAnalysis: undefined,
-              errorCode: undefined,
-              error: undefined,
-            }
-          : p
-      )
-    );
-    if (selectedProfileForDetail?.id === id) {
-      setSelectedProfileForDetail((prev) =>
-        prev
-          ? {
-              ...prev,
-              isAnalyzed: false,
-              aiAnalysis: undefined,
-              errorCode: undefined,
-              error: undefined,
-            }
-          : null
-      );
-    }
-    showToast("Analisi resettata. Il profilo è pronto per essere rianalizzato.");
+    const profile = profiles.find((p) => p.id === id);
+    const targetName = profile?.aiAnalysis?.displayName || profile?.displayName || profile?.username;
+
+    setConfirmModalConfig({
+      isOpen: true,
+      actionType: "reset_profile_analysis",
+      targetName: targetName ? `@${targetName}` : undefined,
+      onConfirm: () => {
+        setProfiles((prev) =>
+          prev.map((p) =>
+            p.id === id
+              ? {
+                  ...p,
+                  isAnalyzed: false,
+                  aiAnalysis: undefined,
+                  errorCode: undefined,
+                  error: undefined,
+                }
+              : p
+          )
+        );
+        if (selectedProfileForDetail?.id === id) {
+          setSelectedProfileForDetail((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  isAnalyzed: false,
+                  aiAnalysis: undefined,
+                  errorCode: undefined,
+                  error: undefined,
+                }
+              : null
+          );
+        }
+        showToast(`Analisi smarcata per "${targetName || id}". Pronto per nuova estrazione.`);
+      },
+    });
   };
 
   // Import profiles handler
@@ -531,101 +627,115 @@ export default function App() {
     }
   };
 
-  // Import Gemini Pro Offline JSON
-  const handleImportGeminiPro = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  // Import Gemini Pro Offline JSON (Supports single unified file or multiple batch files selected at once)
+  const handleImportGeminiPro = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      try {
-        const text = event.target?.result as string;
-        const parsed = JSON.parse(text);
-
-        // Extract list of profiles from various supported JSON formats:
-        // 1. Direct array: [ { username, aiAnalysis } ]
-        // 2. Array of arrays: [ [ { username, aiAnalysis } ], [ ... ] ]
-        // 3. Object wrappers: { results: [...] }, { profiles: [...] }, { lotti: [...] }, { batches: [...] }
-        let rawList: any[] = [];
-        if (Array.isArray(parsed)) {
-          if (parsed.length > 0 && Array.isArray(parsed[0])) {
-            rawList = parsed.flat();
-          } else {
-            rawList = parsed;
-          }
-        } else if (parsed && typeof parsed === "object") {
-          if (Array.isArray(parsed.results)) rawList = parsed.results;
-          else if (Array.isArray(parsed.profiles)) rawList = parsed.profiles;
-          else if (Array.isArray(parsed.profiliTotali)) rawList = parsed.profiliTotali;
-          else if (Array.isArray(parsed.data)) rawList = parsed.data;
-          else if (Array.isArray(parsed.lotti)) {
-            rawList = parsed.lotti.flatMap((l: any) => l.profili || l.profiles || l.results || l);
-          } else if (Array.isArray(parsed.batches)) {
-            rawList = parsed.batches.flatMap((b: any) => b.profiles || b.results || b);
-          } else if (parsed.username && parsed.aiAnalysis) {
-            rawList = [parsed];
-          }
-        }
-
-        if (rawList.length === 0) {
-          showToast("Errore: nessun profilo analizzato trovato nel file JSON selezionato.");
-          return;
-        }
-
-        setProfiles((prev) => {
-          let updatedCount = 0;
-          const updatedProfiles = prev.map((p) => {
-            const importedMatch = rawList.find(
-              (imp: any) =>
-                imp.username?.toLowerCase() === p.username.toLowerCase() && imp.aiAnalysis
-            );
-            if (importedMatch) {
-              updatedCount++;
-              const impAi = importedMatch.aiAnalysis;
-              return {
-                ...p,
-                isAnalyzed: true,
-                isAnalyzing: false,
-                isPrivatePerson: impAi.isPrivatePerson ?? false,
-                error: undefined,
-                errorCode: undefined,
-                displayName: impAi.displayName || p.displayName,
-                aiAnalysis: {
-                  displayName: impAi.displayName || "",
-                  macroEntity: impAi.macroEntity,
-                  category: impAi.category || "",
-                  subType: impAi.subType || impAi.studioType || "",
-                  studioType: impAi.studioType || impAi.subType || "",
-                  isPrivatePerson: impAi.isPrivatePerson ?? false,
-                  locationCity: impAi.locationCity || "",
-                  locationRegion: impAi.locationRegion || impAi.locationState || "",
-                  locationCountry: impAi.locationCountry || "",
-                  countryCode: impAi.countryCode || "",
-                  locationState: impAi.locationState || "",
-                  locationStreet: impAi.locationStreet || "",
-                  workMode: impAi.workMode || "in_sede",
-                  subCategories: Array.isArray(impAi.subCategories) ? impAi.subCategories : [],
-                  mapsLinks: Array.isArray(impAi.mapsLinks) ? impAi.mapsLinks : [],
-                  visualStyle: impAi.visualStyle || "",
-                  keySpecialties: Array.isArray(impAi.keySpecialties) ? impAi.keySpecialties : [],
-                  designTags: Array.isArray(impAi.designTags) ? impAi.designTags : [],
-                  description: impAi.description || "",
-                  website: impAi.website || "",
-                  analyzedAt: new Date().toISOString(),
-                },
-              };
-            }
-            return p;
-          });
-          showToast(`Importazione Gemini completata! Aggiornati ${updatedCount} profili.`);
-          return updatedProfiles;
-        });
-      } catch (err: any) {
-        showToast("Errore di parsing del file JSON.");
-      }
+    const readFileAsText = (file: File): Promise<string> => {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (event) => resolve(event.target?.result as string);
+        reader.onerror = () => reject(new Error(`Errore di lettura del file ${file.name}`));
+        reader.readAsText(file);
+      });
     };
-    reader.readAsText(file);
-    e.target.value = "";
+
+    try {
+      const allRawItems: any[] = [];
+      const fileCount = files.length;
+
+      for (let i = 0; i < fileCount; i++) {
+        const text = await readFileAsText(files[i]);
+        try {
+          const parsed = JSON.parse(text);
+          let rawList: any[] = [];
+
+          if (Array.isArray(parsed)) {
+            if (parsed.length > 0 && Array.isArray(parsed[0])) {
+              rawList = parsed.flat();
+            } else {
+              rawList = parsed;
+            }
+          } else if (parsed && typeof parsed === "object") {
+            if (Array.isArray(parsed.results)) rawList = parsed.results;
+            else if (Array.isArray(parsed.profiles)) rawList = parsed.profiles;
+            else if (Array.isArray(parsed.profiliTotali)) rawList = parsed.profiliTotali;
+            else if (Array.isArray(parsed.data)) rawList = parsed.data;
+            else if (Array.isArray(parsed.lotti)) {
+              rawList = parsed.lotti.flatMap((l: any) => l.profili || l.profiles || l.results || l);
+            } else if (Array.isArray(parsed.batches)) {
+              rawList = parsed.batches.flatMap((b: any) => b.profiles || b.results || b);
+            } else if (parsed.username && parsed.aiAnalysis) {
+              rawList = [parsed];
+            }
+          }
+          allRawItems.push(...rawList);
+        } catch (err) {
+          console.warn(`File ${files[i].name} non e un JSON valido.`);
+        }
+      }
+
+      if (allRawItems.length === 0) {
+        showToast("Errore: nessun profilo analizzato trovato nei file JSON selezionati.");
+        return;
+      }
+
+      setProfiles((prev) => {
+        let updatedCount = 0;
+        const updatedProfiles = prev.map((p) => {
+          const importedMatch = allRawItems.find(
+            (imp: any) =>
+              imp.username?.toLowerCase() === p.username.toLowerCase() && imp.aiAnalysis
+          );
+          if (importedMatch) {
+            updatedCount++;
+            const impAi = importedMatch.aiAnalysis;
+            return {
+              ...p,
+              isAnalyzed: true,
+              isAnalyzing: false,
+              isPrivatePerson: impAi.isPrivatePerson ?? false,
+              error: undefined,
+              errorCode: undefined,
+              displayName: impAi.displayName || p.displayName,
+              aiAnalysis: {
+                displayName: impAi.displayName || "",
+                macroEntity: impAi.macroEntity,
+                category: impAi.category || "",
+                subType: impAi.subType || impAi.studioType || "",
+                studioType: impAi.studioType || impAi.subType || "",
+                isPrivatePerson: impAi.isPrivatePerson ?? false,
+                locationCity: impAi.locationCity || "",
+                locationRegion: impAi.locationRegion || impAi.locationState || "",
+                locationCountry: impAi.locationCountry || "",
+                countryCode: impAi.countryCode || "",
+                locationState: impAi.locationState || "",
+                locationStreet: impAi.locationStreet || "",
+                workMode: impAi.workMode || "in_sede",
+                subCategories: Array.isArray(impAi.subCategories) ? impAi.subCategories : [],
+                mapsLinks: Array.isArray(impAi.mapsLinks) ? impAi.mapsLinks : [],
+                visualStyle: impAi.visualStyle || "",
+                keySpecialties: Array.isArray(impAi.keySpecialties) ? impAi.keySpecialties : [],
+                designTags: Array.isArray(impAi.designTags) ? impAi.designTags : [],
+                description: impAi.description || "",
+                website: impAi.website || "",
+                analyzedAt: new Date().toISOString(),
+              },
+            };
+          }
+          return p;
+        });
+        showToast(
+          `Importazione completata con successo! Aggiornati ${updatedCount} profili da ${fileCount} file.`
+        );
+        return updatedProfiles;
+      });
+    } catch (err: any) {
+      showToast("Errore durante l'elaborazione dei file JSON.");
+    } finally {
+      e.target.value = "";
+    }
   };
 
   // Reset to initial curated sample
@@ -681,6 +791,7 @@ export default function App() {
         onClearAllProfiles={handleClearAllProfiles}
         onImportGeminiPro={handleImportGeminiPro}
         onOpenExportGemini={() => setIsExportGeminiModalOpen(true)}
+        onOpenAutoAnalysis={() => setIsAutoAnalysisModalOpen(true)}
         theme={theme}
         onThemeChange={setTheme}
       />
@@ -720,19 +831,22 @@ export default function App() {
         />
 
         {/* Prominent Cascading Multi-Select Taxonomy Filter Section ("Sotto tutto i filtri delle categorie...") */}
-        {isTaxonomyOpen && (
-          <TaxonomyFilterBar
-            selectedTags={selectedTaxonomyTags}
-            onToggleTag={handleToggleTaxonomyTag}
-            onClearTags={handleClearTaxonomyTags}
-            profiles={profiles}
-            theme={theme}
-            matchMode={taxonomyMatchMode}
-            onMatchModeChange={setTaxonomyMatchMode}
-            customCategories={customCategories}
-            onAddCustomCategory={handleAddCustomCategory}
-          />
-        )}
+        <TaxonomyFilterBar
+          isOpen={isTaxonomyOpen}
+          onToggleOpen={() => setIsTaxonomyOpen((prev) => !prev)}
+          selectedTags={selectedTaxonomyTags}
+          onToggleTag={handleToggleTaxonomyTag}
+          onClearTags={handleClearTaxonomyTags}
+          profiles={profiles}
+          theme={theme}
+          matchMode={taxonomyMatchMode}
+          onMatchModeChange={setTaxonomyMatchMode}
+          customCategories={customCategories}
+          onAddCustomCategory={handleAddCustomCategory}
+          selectedMacroEntity={selectedMacroEntity}
+          onMacroEntityChange={setSelectedMacroEntity}
+        />
+
 
         {/* View Renderings */}
         {viewMode === "table" && (
@@ -743,6 +857,7 @@ export default function App() {
             onDeleteProfile={handleDeleteProfile}
             onResetProfileAnalysis={handleResetProfileAnalysis}
             onMarkAsPrivate={handleMarkAsPrivate}
+            onAnalyzeSingle={handleAnalyzeSingleProfile}
             theme={theme}
           />
         )}
@@ -768,6 +883,7 @@ export default function App() {
                     onToggleFavorite={() => handleToggleFavorite(profile.id)}
                     onResetProfileAnalysis={() => handleResetProfileAnalysis(profile.id)}
                     onMarkAsPrivate={() => handleMarkAsPrivate(profile.id)}
+                    onAnalyzeSingle={() => handleAnalyzeSingleProfile(profile.id)}
                     theme={theme}
                   />
                 ))}
@@ -848,6 +964,15 @@ export default function App() {
         onClose={() => setIsExportGeminiModalOpen(false)}
         profiles={profiles}
         theme={theme}
+      />
+
+      {/* Auto Online Analysis Queue Modal (Gemini Free) */}
+      <AutoAnalysisQueueModal
+        isOpen={isAutoAnalysisModalOpen}
+        onClose={() => setIsAutoAnalysisModalOpen(false)}
+        profiles={profiles}
+        onUpdateProfileAnalysis={handleUpdateProfileAnalysis}
+        isDark={theme === 'dark'}
       />
 
       {/* Studio Detail Modal with full manual editing and smart autocomplete */}

@@ -13,10 +13,16 @@ import {
   UserX,
   Building,
   Compass,
+  Zap,
 } from "lucide-react";
 import { InstagramProfile } from "../types";
 import { ProfilePreview } from "./ProfilePreview";
-import { classifyEntityKind, classifyEntitySubType } from "../utils/entityClassifier";
+import {
+  classifyMacroEntity,
+  classifyEntitySubType,
+  MACRO_ENTITY_BADGE_MAP,
+  COLLABORATION_RELATION_CONFIG,
+} from "../utils/entityClassifier";
 
 interface StudioTableProps {
   profiles: InstagramProfile[];
@@ -25,10 +31,11 @@ interface StudioTableProps {
   onDeleteProfile: (id: string) => void;
   onResetProfileAnalysis: (id: string) => void;
   onMarkAsPrivate: (id: string) => void;
+  onAnalyzeSingle?: (id: string) => void;
   theme?: 'light' | 'dark';
 }
 
-type SortField = "username" | "name" | "kind" | "category" | "location" | "rating" | "status";
+type SortField = "username" | "name" | "kind" | "category" | "location" | "rating" | "status" | "contacts";
 
 const AVATAR_COLORS = [
   "bg-[#FF5E8E]",
@@ -47,6 +54,7 @@ export const StudioTable: React.FC<StudioTableProps> = ({
   onDeleteProfile,
   onResetProfileAnalysis,
   onMarkAsPrivate,
+  onAnalyzeSingle,
   theme = 'light',
 }) => {
   const [sortField, setSortField] = useState<SortField>("name");
@@ -75,8 +83,8 @@ export const StudioTable: React.FC<StudioTableProps> = ({
         valB = b.aiAnalysis?.displayName || b.displayName || b.username;
         break;
       case "kind":
-        valA = `${classifyEntityKind(a)} ${classifyEntitySubType(a)}`;
-        valB = `${classifyEntityKind(b)} ${classifyEntitySubType(b)}`;
+        valA = `${classifyMacroEntity(a)} ${classifyEntitySubType(a)}`;
+        valB = `${classifyMacroEntity(b)} ${classifyEntitySubType(b)}`;
         break;
       case "category":
         valA = a.aiAnalysis?.category || "ZZZ";
@@ -86,6 +94,11 @@ export const StudioTable: React.FC<StudioTableProps> = ({
         valA = `${a.aiAnalysis?.locationCountry || "ZZZ"} ${a.aiAnalysis?.locationCity || ""}`;
         valB = `${b.aiAnalysis?.locationCountry || "ZZZ"} ${b.aiAnalysis?.locationCity || ""}`;
         break;
+      case "contacts": {
+        const countA = (a.contactInfo?.relations?.length || 0) + (a.contactInfo?.taggedPeople?.length || 0);
+        const countB = (b.contactInfo?.relations?.length || 0) + (b.contactInfo?.taggedPeople?.length || 0);
+        return sortAsc ? countB - countA : countA - countB;
+      }
       case "rating":
         return sortAsc ? (a.rating || 0) - (b.rating || 0) : (b.rating || 0) - (a.rating || 0);
       case "status":
@@ -138,6 +151,15 @@ export const StudioTable: React.FC<StudioTableProps> = ({
                 </div>
               </th>
               <th
+                onClick={() => handleSort("contacts")}
+                className="py-3 px-4 cursor-pointer opacity-85 hover:opacity-100 transition"
+              >
+                <div className="flex items-center gap-1.5">
+                  <span>Contatti & Relazioni</span>
+                  <ArrowUpDown className="w-3.5 h-3.5 opacity-60" />
+                </div>
+              </th>
+              <th
                 onClick={() => handleSort("name")}
                 className="py-3 px-4 cursor-pointer opacity-85 hover:opacity-100 transition"
               >
@@ -183,8 +205,11 @@ export const StudioTable: React.FC<StudioTableProps> = ({
               const ai = profile.aiAnalysis;
               const studioName = ai?.displayName || profile.displayName || profile.username;
               const avatarColor = AVATAR_COLORS[i % AVATAR_COLORS.length];
-              const entityKind = classifyEntityKind(profile);
+              const macroEntity = classifyMacroEntity(profile);
+              const macroBadge = MACRO_ENTITY_BADGE_MAP[macroEntity] || MACRO_ENTITY_BADGE_MAP.studio;
               const subType = classifyEntitySubType(profile);
+              const relations = profile.contactInfo?.relations || [];
+              const taggedPeople = profile.contactInfo?.taggedPeople || [];
 
               return (
                 <tr
@@ -247,26 +272,70 @@ export const StudioTable: React.FC<StudioTableProps> = ({
                     </div>
                   </td>
 
-                  {/* Natura & Tipo (Studi vs Aziende) */}
+                  {/* Natura & Tipo (Tutte le Macro-Categorie) */}
                   <td className="py-3 px-4">
                     <div className="flex flex-col gap-0.5">
                       <div className="flex items-center gap-1 font-hand font-bold text-xs">
-                        {entityKind === "azienda" ? (
-                          <span className="text-[#FB8500] inline-flex items-center gap-1">
-                            🏢 Azienda
-                          </span>
-                        ) : entityKind === "studio" ? (
-                          <span className="text-[#3A86FF] inline-flex items-center gap-1">
-                            📐 Studio
-                          </span>
-                        ) : (
-                          <span className="opacity-60">Altro</span>
-                        )}
+                        <span className={`${macroBadge.colorClass} inline-flex items-center gap-1`}>
+                          <span>{macroBadge.icon}</span>
+                          <span>{macroBadge.label}</span>
+                        </span>
                       </div>
-                      <span className="text-[11px] font-sans opacity-75 truncate max-w-[140px]" title={subType}>
+                      <span className="text-[11px] font-sans opacity-75 truncate max-w-[150px]" title={subType}>
                         {subType}
                       </span>
                     </div>
+                  </td>
+
+                  {/* Contatti & Collaborazioni */}
+                  <td className="py-3 px-4">
+                    {relations.length > 0 || taggedPeople.length > 0 ? (
+                      <div className="flex flex-col gap-1 max-w-[180px]">
+                        {relations.length > 0 && (
+                          <div className="flex flex-wrap gap-1">
+                            {relations.map((rel) => {
+                              const cfg = COLLABORATION_RELATION_CONFIG[rel];
+                              if (!cfg) return null;
+                              return (
+                                <span
+                                  key={rel}
+                                  className={`inline-flex items-center gap-1 px-1.5 py-0.2 rounded-md border text-[10px] font-hand font-bold ${cfg.badgeClass}`}
+                                  title={cfg.description}
+                                >
+                                  <span>{cfg.icon}</span>
+                                  <span>{cfg.shortLabel}</span>
+                                </span>
+                              );
+                            })}
+                          </div>
+                        )}
+                        {taggedPeople.length > 0 && (
+                          <div className="flex flex-wrap gap-1 items-center text-[10px] font-typewriter opacity-85">
+                            {taggedPeople.slice(0, 2).map((person) => (
+                              <span
+                                key={person.id}
+                                className={`inline-flex items-center gap-1 px-1.5 py-0.2 rounded-md border ${
+                                  theme === 'dark'
+                                    ? 'bg-[#282622] border-[#57534E] text-[#FFD13B]'
+                                    : 'bg-[#FFF9E6] border-[#1C1A17]/40 text-[#1C1A17]'
+                                }`}
+                                title={`${person.name}${person.role ? ` (${person.role})` : ''}${person.note ? ` - ${person.note}` : ''}`}
+                              >
+                                <span>👤</span>
+                                <span className="truncate max-w-[95px] font-bold">{person.name}</span>
+                              </span>
+                            ))}
+                            {taggedPeople.length > 2 && (
+                              <span className="text-[9px] opacity-60">+{taggedPeople.length - 2}</span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <span className="text-[11px] opacity-40 hover:opacity-90 font-hand transition">
+                        + Aggiungi contatto
+                      </span>
+                    )}
                   </td>
 
                   {/* Sito Web */}
@@ -400,6 +469,21 @@ export const StudioTable: React.FC<StudioTableProps> = ({
                   {/* Actions */}
                   <td className="py-3 px-4 text-right" onClick={(e) => e.stopPropagation()}>
                     <div className="flex items-center justify-end gap-1.5">
+                      {!profile.isAnalyzed && onAnalyzeSingle && (
+                        <button
+                          onClick={() => onAnalyzeSingle(profile.id)}
+                          disabled={profile.isAnalyzing}
+                          className="p-1 rounded-lg text-[#1C1A17] dark:text-[#FFD13B] bg-[#FFD13B] dark:bg-[#FFD13B]/20 hover:scale-110 transition cursor-pointer"
+                          title="Analizza questo profilo con Gemini API"
+                        >
+                          {profile.isAnalyzing ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <Zap className="w-3.5 h-3.5 fill-current" />
+                          )}
+                        </button>
+                      )}
+
                       <button
                         onClick={() => onSelectProfile(profile)}
                         className="p-1 rounded-lg opacity-70 hover:opacity-100 hover:bg-black/10 transition cursor-pointer"
