@@ -985,6 +985,8 @@ export default function App() {
         onDelete={handleDeleteProfile}
         onResetProfileAnalysis={handleResetProfileAnalysis}
         allNotebookTags={allNotebookTags}
+        allProfiles={profiles}
+        onSelectProfileById={(prof) => setSelectedProfileForDetail(prof)}
         theme={theme}
       />
 

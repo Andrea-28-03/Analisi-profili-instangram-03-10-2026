@@ -562,7 +562,20 @@ export const StudioDetailModal: React.FC<StudioDetailModalProps> = ({
                 </label>
                 <select
                   value={macroEntity}
-                  onChange={(e) => setMacroEntity(e.target.value as MacroEntity)}
+                  onChange={(e) => {
+                    const nextMacro = e.target.value as MacroEntity;
+                    setMacroEntity(nextMacro);
+                    const simulatedProfile: InstagramProfile = {
+                      ...profile,
+                      aiAnalysis: {
+                        ...(profile.aiAnalysis || ({} as any)),
+                        macroEntity: nextMacro,
+                        subType: "",
+                        studioType: "",
+                      },
+                    };
+                    setSubType(classifyEntitySubType(simulatedProfile));
+                  }}
                   className={`w-full p-2 rounded-xl border text-xs font-hand font-bold focus:outline-none cursor-pointer ${inputBg}`}
                 >
                   {MACRO_OPTIONS.map((opt) => (

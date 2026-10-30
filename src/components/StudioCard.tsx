@@ -128,7 +128,7 @@ export const StudioCard: React.FC<StudioCardProps> = ({
 
         {/* Entity Kind & Sub-Type Indicator */}
         <div className="flex items-center gap-1.5 text-xs font-hand font-bold mb-2">
-          <span className={`${macroBadge.color} inline-flex items-center gap-1 shrink-0`}>
+          <span className={`${macroBadge.colorClass} inline-flex items-center gap-1 shrink-0`}>
             <span>{macroBadge.icon}</span>
             <span>{macroBadge.label}</span>
           </span>

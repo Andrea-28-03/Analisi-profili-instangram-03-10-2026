@@ -24,6 +24,7 @@ import {
   ChevronDown,
   Check,
   SlidersHorizontal,
+  Handshake,
 } from "lucide-react";
 import {
   ViewMode,
@@ -32,8 +33,10 @@ import {
   GeoFilterType,
   FilterWorkSpaceMode,
   WorkSpaceMode,
+  FilterContactRelation,
+  CollaborationRelationType,
 } from "../types";
-import { WORK_MODE_CONFIG } from "../utils/entityClassifier";
+import { WORK_MODE_CONFIG, COLLABORATION_RELATION_CONFIG } from "../utils/entityClassifier";
 
 interface CategoryFilterProps {
   searchQuery: string;
@@ -54,6 +57,9 @@ interface CategoryFilterProps {
   selectedWorkMode: FilterWorkSpaceMode;
   onWorkModeChange: (mode: FilterWorkSpaceMode) => void;
   workModeCounts: Record<WorkSpaceMode, number>;
+  selectedContactRelation?: FilterContactRelation;
+  onContactRelationChange?: (rel: FilterContactRelation) => void;
+  contactRelationCounts?: Record<string, number>;
   viewMode: ViewMode;
   onViewModeChange: (mode: ViewMode) => void;
   totalFilteredCount: number;
@@ -85,6 +91,9 @@ export const CategoryFilter: React.FC<CategoryFilterProps> = ({
   selectedWorkMode,
   onWorkModeChange,
   workModeCounts,
+  selectedContactRelation = "all",
+  onContactRelationChange,
+  contactRelationCounts = {},
   viewMode,
   onViewModeChange,
   totalFilteredCount,
@@ -101,10 +110,12 @@ export const CategoryFilter: React.FC<CategoryFilterProps> = ({
   const [geoSearchQuery, setGeoSearchQuery] = useState("");
   const [isStatusOpen, setIsStatusOpen] = useState(false);
   const [isWorkModeOpen, setIsWorkModeOpen] = useState(false);
+  const [isContactOpen, setIsContactOpen] = useState(false);
 
   const geoDropdownRef = useRef<HTMLDivElement>(null);
   const statusDropdownRef = useRef<HTMLDivElement>(null);
   const workModeDropdownRef = useRef<HTMLDivElement>(null);
+  const contactDropdownRef = useRef<HTMLDivElement>(null);
 
   // Close popovers on click outside
   useEffect(() => {
@@ -119,6 +130,9 @@ export const CategoryFilter: React.FC<CategoryFilterProps> = ({
       if (workModeDropdownRef.current && !workModeDropdownRef.current.contains(target)) {
         setIsWorkModeOpen(false);
       }
+      if (contactDropdownRef.current && !contactDropdownRef.current.contains(target)) {
+        setIsContactOpen(false);
+      }
     };
 
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -126,6 +140,7 @@ export const CategoryFilter: React.FC<CategoryFilterProps> = ({
         setIsGeoOpen(false);
         setIsStatusOpen(false);
         setIsWorkModeOpen(false);
+        setIsContactOpen(false);
       }
     };
 
